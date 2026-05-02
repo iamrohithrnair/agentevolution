@@ -622,6 +622,11 @@ async def text_mode_repl(reader: Any | None = None, writer: Any | None = None) -
 # --------------------------------------------------------------------------- #
 
 
+def _prewarm(_proc) -> None:
+    """Module-level prewarm so the watcher-based ``dev`` mode can pickle it."""
+    silero.VAD.load()  # type: ignore[union-attr]
+
+
 def main(argv: list[str] | None = None) -> None:
     """``python -m dronan.voice.livekit_worker [dev|start] [--text-mode]``."""
     argv = argv if argv is not None else sys.argv[1:]
@@ -638,7 +643,7 @@ def main(argv: list[str] | None = None) -> None:
         WorkerOptions(  # type: ignore[union-attr, call-arg]
             entrypoint_fnc=agent_entrypoint,
             agent_name="dronan-mission-control",
-            prewarm_fnc=lambda _proc: silero.VAD.load(),  # type: ignore[union-attr]
+            prewarm_fnc=_prewarm,
         ),
     )
 
