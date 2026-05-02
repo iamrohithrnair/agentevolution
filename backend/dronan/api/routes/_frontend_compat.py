@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ..deps import get_db
-from ._helpers import serialise
+from ._helpers import serialise, to_nofly
 
 router = APIRouter(tags=["frontend-compat"])
 
@@ -47,7 +47,7 @@ async def list_no_fly_zones(db: Any = Depends(get_db), active: bool = True) -> l
             ],
         }
     cursor = db.no_fly_zones.find(q).limit(200)
-    return [serialise(doc) async for doc in cursor]
+    return [to_nofly(serialise(doc)) async for doc in cursor]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

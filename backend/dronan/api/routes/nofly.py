@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from ..deps import get_db
-from ._helpers import serialise
+from ._helpers import serialise, to_nofly
 
 router = APIRouter(prefix="/nofly", tags=["nofly"])
 
@@ -15,4 +15,4 @@ router = APIRouter(prefix="/nofly", tags=["nofly"])
 @router.get("")
 async def list_nofly(db: Any = Depends(get_db)) -> list[dict]:
     cursor = db.no_fly_zones.find({}).sort("_id", 1)
-    return [serialise(d) async for d in cursor]
+    return [to_nofly(serialise(d)) async for d in cursor]

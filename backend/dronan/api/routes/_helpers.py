@@ -28,3 +28,98 @@ def serialise(doc: Any) -> Any:
     if ObjectId is not None and isinstance(doc, ObjectId):
         return str(doc)
     return doc
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Frontend-shape mappers — GeoJSON → LngLat tuple, _id → id, dt → epoch ms.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _to_lnglat(loc: Any) -> list[float] | None:
+    """GeoJSON ``{type: "Point", coordinates: [lon, lat]}`` → ``[lon, lat]``."""
+    if not isinstance(loc, dict):
+        return None
+    coords = loc.get("coordinates")
+    if isinstance(coords, list) and len(coords) >= 2:
+        return [float(coords[0]), float(coords[1])]
+    return None
+
+
+def _to_epoch_ms(value: Any) -> int | None:
+    if hasattr(value, "timestamp"):
+        return int(value.timestamp() * 1000)
+    if isinstance(value, str):
+        try:
+            return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
+        except ValueError:
+            return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+def to_facility(doc: dict) -> dict:
+    """Shape a ``facilities`` doc into the frontend ``Facility`` contract.
+
+    Keeps the raw doc accessible under ``raw`` so the mapped shape plus the
+    legacy fields (``location``, ``airsim_xy``, ``capabilities``, …) coexist
+    for backwards-compatible consumers.
+    """
+    position = _to_lnglat(doc.get("location")) or _to_lnglat(doc.get("position"))
+    shaped = {
+        "id": str(doc.get("_id") or doc.get("name") or ""),
+        "name": doc.get("name") or str(doc.get("_id") or ""),
+        "type": doc.get("type") or "hospital",
+        "region": doc.get("region") or "",
+        "address": doc.get("address") or "",
+        "capabilities": list(doc.get("capabilities") or []),
+        "position": position or [0.0, 0.0],
+    }
+    # Back-compat — existing tests + REST clients still read these.
+    shaped["_id"] = shaped["id"]
+    if doc.get("description"):
+        shaped["description"] = doc["description"]
+    return shaped
+
+
+def to_drone(doc: dict) -> dict:
+    """Shape a ``drones`` doc into the frontend ``Drone`` contract."""
+    position = _to_lnglat(doc.get("position")) or [0.0, 0.0]
+    shaped = {
+        "id": str(doc.get("_id") or ""),
+        "status": doc.get("status") or "idle",
+        "battery": float(doc.get("battery", 0.0)),
+        "position": position,
+        "heading_deg": float(doc.get("heading_deg", 0.0)),
+        "current_mission_id": doc.get("current_mission_id"),
+        "last_seen": _to_epoch_ms(doc.get("last_seen")) or 0,
+        "payload_temp_c": doc.get("payload_temp_c"),
+        # Extra fields keep the legacy contract happy.
+        "_id": str(doc.get("_id") or ""),
+        "model": doc.get("model"),
+        "firmware": doc.get("firmware"),
+        "capabilities": list(doc.get("capabilities") or []),
+        "current_location": doc.get("current_location"),
+        "alt_m": doc.get("alt_m"),
+        "max_payload_kg": doc.get("max_payload_kg"),
+        "cruise_speed_ms": doc.get("cruise_speed_ms"),
+    }
+    return shaped
+
+
+def to_nofly(doc: dict) -> dict:
+    """Shape a ``no_fly_zones`` doc into the frontend ``NoFlyZone`` contract."""
+    geom = doc.get("geometry") or doc.get("location") or {}
+    if not isinstance(geom, dict):
+        geom = {}
+    return {
+        "id": str(doc.get("_id") or doc.get("name") or ""),
+        "_id": str(doc.get("_id") or ""),
+        "name": doc.get("name") or "",
+        "country": doc.get("country") or "",
+        "severity": doc.get("severity") or "medium",
+        "geometry": {
+            "type": geom.get("type", "Polygon"),
+            "coordinates": geom.get("coordinates") or [],
+        },
+    }
