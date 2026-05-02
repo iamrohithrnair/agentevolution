@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Awaitable, Callable, Iterable
 
 from .state import MissionState, Route
+
+log = logging.getLogger(__name__)
 
 NodeFn = Callable[[MissionState, Any], Awaitable[dict[str, Any]]]
 
@@ -41,7 +44,10 @@ def agent_node(
                     result = await fn(state, db=db)
                 else:
                     result = await fn(state)
-            except Exception as exc:  # pragma: no cover — defensive guard
+            except Exception as exc:
+                # Programming-level wiring bugs are noisy on purpose so they
+                # surface in CI/log aggregation. The graph still survives.
+                log.exception("agent %s raised %s", name, exc.__class__.__name__)
                 update["errors"] = [
                     {
                         "agent": name,

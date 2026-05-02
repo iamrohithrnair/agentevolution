@@ -48,19 +48,35 @@ async def write_reflection(
     text: str,
     title: str | None = None,
     metadata: dict | None = None,
+    tags: list[str] | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
-    """Persist a reflection card linked to ``mission_id``."""
+    """Persist a reflection card linked to ``mission_id``.
+
+    ``tags`` are folded into ``metadata['tags']`` (deduped) so the underlying
+    ``embed_and_store`` schema doesn't need to change. ``idempotency_key`` is
+    forwarded to the ``@mongo_tool`` wrapper around ``embed_and_store`` so
+    repeated reflection writes for the same mission short-circuit.
+    """
     md = dict(metadata or {})
     md.setdefault("mission_id", mission_id)
-    return await embed_and_store(
-        db=db,
-        text=text,
-        kind="reflection",
-        title=title,
-        metadata=md,
-        source_collection="missions",
-        source_id=mission_id,
-    )
+    if tags:
+        existing = list(md.get("tags") or [])
+        merged = list(dict.fromkeys([*existing, *tags]))
+        md["tags"] = merged
+
+    kwargs: dict[str, Any] = {
+        "db": db,
+        "text": text,
+        "kind": "reflection",
+        "title": title,
+        "metadata": md,
+        "source_collection": "missions",
+        "source_id": mission_id,
+    }
+    if idempotency_key is not None:
+        kwargs["idempotency_key"] = idempotency_key
+    return await embed_and_store(**kwargs)
 
 
 async def find_peers(

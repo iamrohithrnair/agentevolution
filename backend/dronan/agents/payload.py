@@ -28,6 +28,7 @@ async def payload_node(state: dict, *, db: Any) -> dict:
         plan = state.get("plan") or {}
         eta_s = plan.get("eta_seconds") or plan.get("eta_s") or 600
         cold = await cold_chain_predict(
+            db=db,
             initial_temp_c=4.0,
             ambient_temp_c=22.0,
             ice_pack_count=manifest.get("ice_pack_count", 1),

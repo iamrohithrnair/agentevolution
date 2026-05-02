@@ -155,3 +155,66 @@ async def test_payload_uses_eta_seconds(mongo_db) -> None:
 
     # 1800 s / 60 = 30.0 minutes. The default fallback would have been 600/60 = 10.
     assert captured.get("flight_minutes") == pytest.approx(30.0)
+
+
+# ---------------------------------------------------------------------------
+# BUG_0001 (round 2 / PR #9): payload_node must forward ``db=`` so the
+# @mongo_tool decorator can log the cold-chain prediction. Otherwise the
+# decorator's "naked-call" branch would forward ``idempotency_key`` to the
+# inner function, which doesn't accept it, raising TypeError that the
+# agent_node decorator silently catches.
+# ---------------------------------------------------------------------------
+async def test_payload_passes_db_to_cold_chain(mongo_db) -> None:
+    from datetime import datetime, timezone
+
+    from backend.seeds.seed_drones import main as seed_drones
+
+    await seed_drones(mongo_db)
+    await mongo_db.deliveries.insert_one(
+        {
+            "_id": "DEL-cc-2",
+            "destination_id": "Royal London",
+            "supply": "blood",
+            "payload_weight_kg": 1.0,
+            "priority": "critical",
+            "status": "pending",
+            "cold_chain_required": True,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+    )
+
+    state = {
+        "mission_id": "M-cc-2",
+        "drone_id": "Drone1",
+        "delivery_ids": ["DEL-cc-2"],
+        "plan": {"eta_seconds": 1800},
+    }
+    out = await payload_node(state, db=mongo_db)
+    # No silent agent-level error from the @mongo_tool decorator.
+    assert "errors" not in out, f"payload silently errored: {out.get('errors')}"
+    cold = out["payload_status"]["cold_chain"]
+    assert cold is not None
+    assert "predicted_temp_c" in cold
+
+
+# ---------------------------------------------------------------------------
+# BUG_0002 (round 2 / PR #9): write_reflection must accept ``tags`` and
+# ``idempotency_key`` so the reflection_node + /memory/reflect API don't
+# crash with TypeError.
+# ---------------------------------------------------------------------------
+async def test_write_reflection_accepts_tags_and_idempotency_key(mongo_db) -> None:
+    from backend.dronan.memory import write_reflection
+
+    res = await write_reflection(
+        mongo_db,
+        mission_id="M-refl-1",
+        text="Mission completed with 0 anomalies.",
+        tags=["mission_summary"],
+        idempotency_key="refl:M-refl-1",
+    )
+    assert res, "write_reflection returned an empty result"
+    # Tags must reach the persisted card metadata.
+    card = await mongo_db.mission_memory.find_one({"source_id": "M-refl-1"})
+    assert card is not None
+    assert "mission_summary" in (card.get("metadata") or {}).get("tags", [])

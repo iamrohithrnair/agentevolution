@@ -111,7 +111,12 @@ def mongo_tool(
             db = kwargs.get("db")
             if db is None:
                 # Allow naked calls (no DB → no idempotency log). Useful for
-                # tests that focus on body behaviour.
+                # tests that focus on body behaviour. Pop decorator-only
+                # kwargs so they don't end up at ``inner`` unless declared.
+                inner_params = inspect.signature(inner).parameters
+                for k in ("idempotency_key", "trace_id", "mission_id", "agent"):
+                    if k in kwargs and k not in inner_params:
+                        kwargs.pop(k)
                 return await inner(*args, **kwargs)
 
             explicit_key = kwargs.pop("idempotency_key", None)
