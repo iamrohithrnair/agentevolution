@@ -79,3 +79,12 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Demo binary artefacts (see assets/README.md)
+assets/*.mp4
+assets/*.mov
+assets/*.wav
+assets/*.m4a
+assets/*.flac
+.logs/
+.pids/
