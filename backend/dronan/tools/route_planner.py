@@ -91,10 +91,23 @@ def _route_doc(
     # Return-to-depot tail
     waypoints.append({**waypoints[0], "kind": "depot_return"})
 
+    # Pre-paired legs — consumers (weather, geofence) iterate these.
+    legs: list[dict] = []
+    for a, b in zip(waypoints, waypoints[1:]):
+        legs.append(
+            {
+                "from": a["name"],
+                "to": b["name"],
+                "from_coord": (a["lon"], a["lat"]),
+                "to_coord": (b["lon"], b["lat"]),
+            }
+        )
+
     return {
         "depot": depot_doc["name"],
         "stops": [stop_docs[i]["name"] for i in order],
         "waypoints": waypoints,
+        "legs": legs,
         "distance_m": round(distance_m, 1),
         "eta_seconds": round(distance_m / max(cruise_speed_ms, 1.0), 1),
         "solver": "or-tools" if _ortools_available() else "haversine-nn",
