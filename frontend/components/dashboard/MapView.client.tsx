@@ -15,7 +15,7 @@ import {
 import L, { type LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { listFacilities, listNoFlyZones, listDrones, listMissions } from "@/lib/api";
+import { listFacilities, listNoFlyZones, listDrones } from "@/lib/api";
 import { openDashboardSocket, openMissionSocket } from "@/lib/ws";
 import type { Drone, Facility, Mission, NoFlyZone, TelemetryFrame } from "@/lib/types";
 import { formatBattery, formatTemp } from "@/lib/format";
@@ -103,18 +103,17 @@ export default function MapView({
 
   const MOVING_STATUSES = new Set(["in_transit", "flying", "executing"]);
 
-  // Initial fetch
+  // Initial fetch — facilities, no-fly zones, drones. Missions are only
+  // populated when the operator dispatches one (via the WS mission_update
+  // event), so the map stays clean until there's something to show.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([listFacilities(), listNoFlyZones(), listDrones(), listMissions()]).then(
-      ([f, n, d, m]) => {
-        if (cancelled) return;
-        setFacilities(f);
-        setZones(n);
-        setDrones(Object.fromEntries(d.map((x) => [x.id, x])));
-        setMissions(Object.fromEntries(m.map((x) => [x.id, x])));
-      },
-    );
+    Promise.all([listFacilities(), listNoFlyZones(), listDrones()]).then(([f, n, d]) => {
+      if (cancelled) return;
+      setFacilities(f);
+      setZones(n);
+      setDrones(Object.fromEntries(d.map((x) => [x.id, x])));
+    });
     return () => {
       cancelled = true;
     };
