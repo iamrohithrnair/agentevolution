@@ -6,14 +6,7 @@ bootstrap:
 	cd frontend && (pnpm install || npm install)
 
 seed:
-	uv run python -m seeds.create_indexes
-	uv run python -m seeds.seed_facilities
-	uv run python -m seeds.seed_no_fly_zones
-	uv run python -m seeds.seed_regulations
-	uv run python -m seeds.seed_synthetic_emergencies
-	uv run python -m seeds.seed_drones
-	uv run python -m seeds.seed_demo_memory
-	uv run python -m seeds.seed_agent_skills
+	uv run python -m backend.seeds.run_all
 
 api:
 	uv run uvicorn dronan.api.main:app --host 0.0.0.0 --port $${API_PORT:-8000} --reload

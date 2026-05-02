@@ -45,9 +45,13 @@ def _parse_iso(s: str) -> datetime:
 
 
 def _row_to_doc(row: dict[str, str]) -> dict[str, Any] | None:
+    # DroneFleet's CSV uses ``timestamp``; older internal dumps used ``ts``.
+    raw_ts = row.get("ts") or row.get("timestamp")
+    if not raw_ts:
+        return None
     try:
-        ts = _parse_iso(row["ts"])
-    except (KeyError, ValueError):
+        ts = _parse_iso(raw_ts)
+    except ValueError:
         return None
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
