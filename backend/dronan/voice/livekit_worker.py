@@ -117,6 +117,7 @@ class MissionContext:
     narrator: NarratorStream | None = None
     signature_event: asyncio.Event = field(default_factory=asyncio.Event)
     signature_buffer: list[str] = field(default_factory=list)
+    signature_pending: bool = False
     barge_in_event: asyncio.Event = field(default_factory=asyncio.Event)
     last_user_utterance_at: float = 0.0
     session: Any = None  # AgentSession
@@ -194,6 +195,7 @@ async def capture_signature(
     """
     ctx.signature_buffer.clear()
     ctx.signature_event.clear()
+    ctx.signature_pending = True
     await speak_via_session(
         ctx, SIGNATURE_PROMPT, source="signature", meta={"delivery_id": delivery_id}
     )
@@ -201,6 +203,7 @@ async def capture_signature(
     try:
         await asyncio.wait_for(ctx.signature_event.wait(), timeout=timeout_s)
     except TimeoutError:
+        ctx.signature_pending = False
         await speak_via_session(
             ctx,
             "Signature timed out. Falling back to text confirmation.",
@@ -209,6 +212,7 @@ async def capture_signature(
         )
         return ""
 
+    ctx.signature_pending = False
     transcript = " ".join(ctx.signature_buffer).strip()
     digest = hashlib.sha256(transcript.encode("utf-8")).hexdigest()
     sig_id = f"SIG-{digest[:8]}"
@@ -479,7 +483,7 @@ async def agent_entrypoint(job: Any) -> None:
         ctx.barge_in_event.clear()
         if ctx.narrator is not None:
             ctx.narrator.note_user_stopped_speaking()
-        if ctx.signature_buffer is not None and not ctx.signature_event.is_set():
+        if ctx.signature_pending and not ctx.signature_event.is_set():
             text = ""
             alts = getattr(event, "alternatives", None) or []
             if alts and getattr(alts[0], "text", None):
@@ -573,10 +577,12 @@ async def text_mode_repl(reader: Any | None = None, writer: Any | None = None) -
         writer.write("> ")
         writer.flush()
         line = reader.readline()
-        if not line:
+        if not line:  # EOF (Ctrl-D / closed stream)
             break
         line = line.strip()
-        if not line or line in {":q", "exit", "quit"}:
+        if not line:  # blank Enter — re-prompt instead of exiting
+            continue
+        if line in {":q", "exit", "quit"}:
             break
 
         if supervisor is None:
