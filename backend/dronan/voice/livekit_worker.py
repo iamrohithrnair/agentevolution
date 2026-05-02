@@ -35,6 +35,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import sys
 import time
 import uuid
@@ -387,21 +388,19 @@ def make_stt(language: str) -> Any:
     if not LIVEKIT_AVAILABLE:
         raise RuntimeError("livekit-agents extras not installed; pip install '.[voice]'")
     settings = get_settings()
+    # Plugin reads DEEPGRAM_API_KEY; pass explicitly so we honour
+    # .env even when the worker is launched with a minimal environment.
+    api_key = settings.deepgram_api_key or os.environ.get("DEEPGRAM_API_KEY", "")
+    kwargs = {
+        "model": settings.deepgram_model,
+        "interim_results": True,
+        "smart_format": True,
+        "punctuate": True,
+        "api_key": api_key,
+    }
     if language == "auto":
-        return deepgram.STT(  # type: ignore[union-attr]
-            model=settings.deepgram_model,
-            detect_language=True,
-            interim_results=True,
-            smart_format=True,
-            punctuate=True,
-        )
-    return deepgram.STT(  # type: ignore[union-attr]
-        model=settings.deepgram_model,
-        language="en",
-        interim_results=True,
-        smart_format=True,
-        punctuate=True,
-    )
+        return deepgram.STT(detect_language=True, **kwargs)  # type: ignore[union-attr]
+    return deepgram.STT(language="en", **kwargs)  # type: ignore[union-attr]
 
 
 def make_tts(language: str) -> Any:
@@ -414,9 +413,16 @@ def make_tts(language: str) -> Any:
         else settings.elevenlabs_voice_id_multilingual
     )
     model = settings.elevenlabs_model_id if language == "en" else "eleven_multilingual_v2"
+    # The livekit-plugins-elevenlabs package reads ``ELEVEN_API_KEY`` at
+    # construction time (not ``ELEVENLABS_API_KEY`` which is what we ship
+    # in .env). Pass the key explicitly so either name works.
+    api_key = settings.elevenlabs_api_key or os.environ.get(
+        "ELEVEN_API_KEY", os.environ.get("ELEVENLABS_API_KEY", "")
+    )
     return elevenlabs.TTS(  # type: ignore[union-attr]
         voice_id=voice,
         model=model,
+        api_key=api_key,
         streaming_latency=2,  # 1=lowest latency, 4=highest quality; 2 is the sweet spot
         chunk_length_schedule=[80, 160, 250, 290],
     )
