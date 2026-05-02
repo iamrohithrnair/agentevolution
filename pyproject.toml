@@ -57,6 +57,7 @@ dependencies = [
   "opentelemetry-instrumentation-pymongo>=0.48b0",
   "reportlab>=4.2.5",
   "langchain-google-genai>=4.2.2",
+  "livekit-plugins-google>=1.5.7",
 ]
 
 [project.optional-dependencies]

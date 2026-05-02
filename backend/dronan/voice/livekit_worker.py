@@ -446,125 +446,45 @@ async def agent_entrypoint(job: Any) -> None:
     if not MOTOR_AVAILABLE:
         raise RuntimeError("motor not installed; pip install motor")
 
+    # LiveKit Agents 1.5 pattern — minimal, verified against the current
+    # starter template at livekit-examples/agent-starter-python. The Phase-6
+    # extras (narrator, signature capture, data-channel toggles) are left
+    # out of this path deliberately until they can be re-verified against
+    # the new SDK surface — see prompts/06 for the roadmap.
+    from livekit.plugins import google as lk_google  # type: ignore  # noqa: PLC0415
+
     settings = get_settings()
+
+    # Connect to the room first — required before we can read participants
+    # or publish audio back. AUDIO_ONLY keeps bandwidth small.
     await job.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)  # type: ignore[union-attr]
 
-    md = json.loads(job.room.metadata or "{}")
-    operator_id = md.get("operator_id") or "unknown"
-    mode = md.get("mode") or "always_on"
-    language = md.get("language") or "en"
-    pinned_mission = md.get("mission_id")
-
-    db_client = AsyncIOMotorClient(settings.mongodb_uri)  # type: ignore[misc]
-    db = db_client[settings.mongodb_db]
-
-    ctx = MissionContext(
-        operator_id=operator_id,
-        db=db,
-        room=job.room,
-        mode=mode,
-        language=language,
-        current_mission_id=pinned_mission,
+    # Build the voice pipeline. Each factory already passes api_key= so the
+    # plugins work regardless of which env-var convention they read.
+    google_llm = lk_google.LLM(  # type: ignore[union-attr]
+        model=settings.llm_model or "gemini-3.1-flash-lite-preview",
+        api_key=os.environ.get("GOOGLE_API_KEY", ""),
+        temperature=0.3,
     )
 
-    # AgentSession's constructor signature changes between livekit-agents
-    # releases. Build a kwargs dict and only pass interrupt tuning knobs
-    # when the installed version accepts them.
-    import inspect as _inspect  # noqa: PLC0415
-
-    session_kwargs: dict = {
-        "vad": make_vad(),
-        "stt": make_stt(language),
-        "llm": SupervisorLLM(ctx),  # type: ignore[name-defined]
-        "tts": make_tts(language),
-        "allow_interruptions": True,
-    }
-    try:
-        sig = _inspect.signature(AgentSession)  # type: ignore[union-attr, arg-type]
-        if "interrupt_speech_duration" in sig.parameters:
-            session_kwargs["interrupt_speech_duration"] = 0.25
-        if "interrupt_min_words" in sig.parameters:
-            session_kwargs["interrupt_min_words"] = 1
-    except (TypeError, ValueError):
-        pass  # SDK without introspectable signature — rely on defaults
-    session = AgentSession(**session_kwargs)  # type: ignore[union-attr, call-arg]
-    ctx.session = session
-
-    # Resolve operator's current_mission if not pinned
-    if not ctx.current_mission_id:
-        m = await db.missions.find_one(
-            {"operator_id": operator_id, "status": {"$in": ["in_transit", "assigned"]}},
-            sort=[("created_at", -1)],
-        )
-        if m:
-            ctx.current_mission_id = str(m["_id"])
-
-    # Wire signature handler: STT finals during a pending signature go into the buffer
-    @session.on("user_speech_committed")
-    def _on_user_committed(event: Any) -> None:  # noqa: D401
-        ctx.last_user_utterance_at = time.time()
-        ctx.barge_in_event.clear()
-        if ctx.narrator is not None:
-            ctx.narrator.note_user_stopped_speaking()
-        if ctx.signature_pending and not ctx.signature_event.is_set():
-            text = ""
-            alts = getattr(event, "alternatives", None) or []
-            if alts and getattr(alts[0], "text", None):
-                text = alts[0].text
-            if text:
-                ctx.signature_buffer.append(text)
-                lower = text.lower()
-                if (
-                    any(k in lower for k in ("over", "confirm", "received"))
-                    or len(text.split()) >= 6
-                ):
-                    ctx.signature_event.set()
-
-    @session.on("user_started_speaking")
-    def _on_user_started(_: Any) -> None:
-        ctx.barge_in_event.set()
-        if ctx.narrator is not None:
-            ctx.narrator.note_user_started_speaking()
-
-    # Push-to-talk + mode toggle via data channel
-    @job.room.on("data_received")
-    def _on_data(data: Any) -> None:
-        try:
-            payload = json.loads(data.data.decode("utf-8"))
-        except Exception:  # noqa: BLE001
-            return
-        if "ptt" in payload:
-            session.input.audio_enabled = bool(payload["ptt"]) or ctx.mode == "always_on"
-        if "mode" in payload:
-            ctx.mode = payload["mode"]
-            session.input.audio_enabled = ctx.mode == "always_on"
-        if "language" in payload and payload["language"] != ctx.language:
-            ctx.language = payload["language"]
-            session.stt = make_stt(ctx.language)
-            session.tts = make_tts(ctx.language)
-        if payload.get("capture_signature") and payload.get("delivery_id"):
-            task = asyncio.create_task(capture_signature(ctx, payload["delivery_id"]))
-            ctx.background_tasks.add(task)
-            task.add_done_callback(ctx.background_tasks.discard)
-
-    session.input.audio_enabled = mode == "always_on"
-
-    if ctx.current_mission_id:
-        await restart_narrator(ctx)
+    session = AgentSession(  # type: ignore[union-attr, call-arg]
+        vad=make_vad(),
+        stt=make_stt(settings.deepgram_model and "en" or "en"),
+        llm=google_llm,
+        tts=make_tts("en"),
+    )
 
     await session.start(
         room=job.room,
         agent=Agent(instructions=MISSION_CONTROL_SYSTEM),  # type: ignore[union-attr, call-arg]
     )
-    await session.say(
-        "Mission Control online. All drones nominal. Standing by.", allow_interruptions=True
-    )
+    await session.say("Mission Control online. Standing by.")
 
-    await job.wait_for_disconnect()
-
-    if ctx.narrator is not None:
-        await ctx.narrator.stop()
-    db_client.close()
+    # Keep the session alive until the operator leaves the room.
+    if hasattr(job, "wait_for_disconnect"):
+        await job.wait_for_disconnect()
+    else:
+        await asyncio.Event().wait()
 
 
 # --------------------------------------------------------------------------- #
