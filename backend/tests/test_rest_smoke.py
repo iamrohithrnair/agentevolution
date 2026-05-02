@@ -62,7 +62,9 @@ async def test_drones_facilities_nofly(client) -> None:
 
     r = await client.get("/facilities")
     assert r.status_code == 200
-    assert len(r.json()) == 9
+    # ≥9 from the hardcoded LOCATIONS; larger when ``backend/data/facilities.xlsx``
+    # is present (489 rows in the production seed).
+    assert len(r.json()) >= 9
 
     r = await client.get("/nofly")
     assert r.status_code == 200
@@ -207,6 +209,19 @@ async def test_internal_low_battery(client, mongo_db) -> None:
     assert alerts >= 1
 
 
-async def test_livekit_token_503_when_unconfigured(client) -> None:
+async def test_livekit_token_endpoint_reflects_config(client) -> None:
+    """503 when LiveKit creds are absent; 200 + token when present."""
+    from backend.dronan.config import get_settings
+
+    s = get_settings()
     r = await client.post("/livekit/token", json={"operator_id": "op-1"})
-    assert r.status_code == 503
+    if s.livekit_api_key and s.livekit_api_secret and s.livekit_url:
+        # 200 (signed token) or 503 ('livekit_sdk_missing') if the SDK isn't installed.
+        assert r.status_code in (200, 503)
+        if r.status_code == 200:
+            body = r.json()
+            assert body.get("token")
+            assert body.get("url") == s.livekit_url
+            assert body.get("room") == "dronan-ops"
+    else:
+        assert r.status_code == 503
