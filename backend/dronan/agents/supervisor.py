@@ -24,24 +24,27 @@ from ..tools.memory import vector_search
 from ._base import agent_node
 from .state import Route
 
-# Static-rule order. Each entry is (next_route, predicate_on_state).
-_STATIC_RULES: list[tuple[Route, Any]] = [
-    ("interpreter", lambda s: not s.get("parsed_task")),
-    ("memory", lambda s: not any(p.get("agent") == "memory" for p in s.get("plan_step_log", []))),
-    ("planner", lambda s: not s.get("plan")),
-    ("weather", lambda s: not s.get("weather")),
-    ("geofence", lambda s: s.get("no_fly_violations") is None),
-    ("preflight", lambda s: not any(p.get("agent") == "preflight" for p in s.get("plan_step_log", []))),
-    ("payload", lambda s: not s.get("payload_status")),
-    ("dispatch", lambda s: s.get("live_telemetry") is None),
-    ("vision", lambda s: not any(p.get("agent") == "vision" for p in s.get("tool_calls", []))),
-    ("anomaly", lambda s: s.get("anomalies") is None),
-    ("deconfliction", lambda s: not any(p.get("agent") == "deconfliction" for p in s.get("plan_step_log", []))),
-    ("replanner", lambda s: not any(p.get("agent") == "replanner" for p in s.get("plan_step_log", []))),
-    ("analyst", lambda s: not any(p.get("agent") == "analyst" for p in s.get("plan_step_log", []))),
-    ("reflection", lambda s: not s.get("reflection")),
-    ("narrator", lambda s: not any(p.get("agent") == "narrator" for p in s.get("plan_step_log", []))),
-]
+# Static specialist order — each agent fires at most once per mission.
+# Termination is driven off ``route_history`` membership, not state-channel
+# predicates, because LangGraph reducer-backed channels (``anomalies``,
+# ``obstacles``) initialise to ``[]``, making "is None" predicates unreliable.
+_STATIC_ORDER: tuple[Route, ...] = (
+    "interpreter",
+    "memory",
+    "planner",
+    "weather",
+    "geofence",
+    "preflight",
+    "payload",
+    "dispatch",
+    "vision",
+    "anomaly",
+    "deconfliction",
+    "replanner",
+    "analyst",
+    "reflection",
+    "narrator",
+)
 
 _MAX_HOPS = 40
 
@@ -67,33 +70,45 @@ async def _discover_peer(
 
 @agent_node("supervisor", record_route=False)
 async def supervisor_node(state: dict, *, db: Any) -> dict:
-    """Pick the next ``route`` (or end)."""
-    history: list[Route] = state.get("route_history", []) or []
+    """Pick the next ``route`` (or end).
+
+    Strategy:
+      1. Walk ``_STATIC_ORDER``; the first agent NOT yet in
+         ``route_history`` is the next route. This is a cheap, fully
+         deterministic baseline.
+      2. If the static order is exhausted but ``state["needs_replan"]``
+         is True, route back into the planner once.
+      3. Otherwise vector-search ``agent_skills`` for the closest peer to
+         the operator's request — but never the agent we just visited and
+         never one that's already been visited twice.
+      4. End.
+    """
+    history: list[Route] = list(state.get("route_history", []) or [])
+    last = state.get("last_routed_to")
+
     if len(history) >= _MAX_HOPS:
         return {"route": "__end__"}
 
-    # 1. Static rules — first one whose predicate fires wins.
-    for nxt, predicate in _STATIC_RULES:
-        try:
-            ok = predicate(state)
-        except Exception:
-            ok = False
-        if ok and (state.get("last_routed_to") != nxt):
+    visited = set(history)
+
+    # 1. Static order — first unvisited specialist wins.
+    for nxt in _STATIC_ORDER:
+        if nxt not in visited:
             return {"route": nxt, "last_routed_to": nxt}
 
-    # 2. Vector search fallback.
-    intent = (
-        state.get("request")
-        or state.get("parsed_task", {}).get("supplies")
-        or "complete the mission"
-    )
-    peer = await _discover_peer(
-        db=db,
-        intent=str(intent),
-        mission_id=state.get("mission_id"),
-    )
-    if peer and peer != state.get("last_routed_to"):
-        return {"route": peer, "last_routed_to": peer}
+    # 2. Re-plan if the replanner flagged it.
+    if state.get("needs_replan") and history.count("planner") < 2 and last != "planner":
+        return {"route": "planner", "last_routed_to": "planner"}
 
-    # 3. End — every static channel filled.
+    # 3. Vector-search fallback for ad-hoc requests.
+    intent = state.get("request")
+    if intent:
+        peer = await _discover_peer(
+            db=db,
+            intent=str(intent),
+            mission_id=state.get("mission_id"),
+        )
+        if peer and peer != last and history.count(peer) < 2 and peer != "supervisor":
+            return {"route": peer, "last_routed_to": peer}
+
     return {"route": "__end__"}

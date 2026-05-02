@@ -41,6 +41,9 @@ class MissionState(TypedDict, total=False):
     request: str
     parsed_task: dict[str, Any]
     route: Route
+    last_routed_to: Route
+    needs_replan: bool
+    altitude_m: float
     route_history: Annotated[list[Route], add]
     live_telemetry: dict[str, Any]
     weather: dict[str, Any]
