@@ -148,14 +148,26 @@ def mongo_tool(
                 tool=tool_name, args_hash=args_hash, explicit=explicit_key
             )
 
-            # The Atlas validator on ``tool_call_log`` uses {pending, success,
-            # error}. Older code wrote {pending, completed, failed}; accept
-            # both on read so historical rows still short-circuit.
-            existing = await db.tool_call_log.find_one(
-                {"idempotency_key": key, "status": {"$in": ["success", "completed"]}}
-            )
-            if existing is not None:
-                return existing.get("result")
+            # Reads are audited but never short-circuited from the log.
+            # Caching a read forever (no TTL) means the first observation is
+            # served on every subsequent call — dangerous for weather /
+            # metrics / memory search. Idempotency only applies to
+            # side-effecting calls (``actuate`` / ``audit`` / ``payload``).
+            #
+            # The Atlas validator on ``tool_call_log`` uses
+            # {pending, success, error}; older code wrote
+            # {pending, completed, failed}, so accept both on read so
+            # historical rows still short-circuit cacheable tools.
+            cacheable = side_effect_class != "read"
+            if cacheable:
+                existing = await db.tool_call_log.find_one(
+                    {
+                        "idempotency_key": key,
+                        "status": {"$in": ["success", "completed"]},
+                    }
+                )
+                if existing is not None:
+                    return existing.get("result")
 
             try:
                 await db.tool_call_log.update_one(

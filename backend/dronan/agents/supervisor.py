@@ -41,6 +41,7 @@ _STATIC_ORDER: tuple[Route, ...] = (
     "anomaly",
     "deconfliction",
     "replanner",
+    "demand_forecast",
     "analyst",
     "reflection",
     "narrator",

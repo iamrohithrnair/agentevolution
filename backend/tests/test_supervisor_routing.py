@@ -105,3 +105,19 @@ async def test_supervisor_routes_through_static_rules(seeded_skills) -> None:
         "dispatch",
     ]
     assert seen[: len(expected_prefix)] == expected_prefix
+
+
+def test_static_order_covers_all_specialists() -> None:
+    """Regression: every registered specialist must appear in ``_STATIC_ORDER``.
+
+    Without this, an agent (e.g. ``demand_forecast``) is registered in
+    ``AGENTS`` and the LangGraph node map but never reachable via the
+    supervisor's deterministic routing pass.
+    """
+    from backend.dronan.agents.registry import SPECIALISTS
+    from backend.dronan.agents.supervisor import _STATIC_ORDER
+
+    missing = set(SPECIALISTS) - set(_STATIC_ORDER)
+    assert not missing, (
+        f"specialists registered but unreachable from supervisor: {sorted(missing)}"
+    )
