@@ -28,11 +28,41 @@ def _hash_key(text: str, *, model: str, dim: int) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+_TOKEN_RE = __import__("re").compile(r"[A-Za-z][A-Za-z0-9_-]+")
+
+
+def _tokenize(text: str) -> list[str]:
+    return [t.lower() for t in _TOKEN_RE.findall(text)]
+
+
 def deterministic_embedding(text: str, *, dim: int = 1024) -> list[float]:
-    """Offline deterministic embedding (L2-normalised)."""
+    """Offline deterministic embedding — hashing-trick bag-of-tokens.
+
+    Each whitespace token is hashed to a slot via SHA-256 (sign + index)
+    and added to the vector. The result is L2-normalised. Texts that share
+    tokens have non-zero cosine similarity, which is what the supervisor's
+    peer-discovery routing relies on when no Voyage key is available.
+
+    A small Gaussian perturbation seeded by the full text breaks ties for
+    documents that happen to map to the same tokens but differ in word
+    order or case (rare in practice).
+    """
+    tokens = _tokenize(text) or [text.strip().lower() or "_"]
+    vec = np.zeros(dim, dtype="float64")
+    for tok in tokens:
+        h = hashlib.sha256(tok.encode("utf-8")).digest()
+        idx = int.from_bytes(h[:4], "big") % dim
+        sign = 1.0 if (h[4] & 1) else -1.0
+        # Down-weight common short fillers slightly.
+        weight = 1.0 if len(tok) > 2 else 0.5
+        vec[idx] += sign * weight
+
+    # Tiny tie-break perturbation so we don't return identical vectors for
+    # different inputs that happen to share tokens.
     seed = int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
     rng = np.random.default_rng(seed)
-    vec = rng.standard_normal(dim).astype("float64")
+    vec += rng.standard_normal(dim) * 1e-3
+
     norm = float(np.linalg.norm(vec))
     if norm == 0:
         return [0.0] * dim
