@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...tools.route_planner import compute_route
 from ..deps import get_db
-from ._helpers import serialise
+from ._helpers import serialise, to_mission
 
 router = APIRouter(prefix="/missions", tags=["missions"])
 
@@ -73,7 +73,7 @@ class MissionCreate(BaseModel):
 @router.get("")
 async def list_missions(db: Any = Depends(get_db), limit: int = 25) -> list[dict]:
     cursor = db.missions.find({}).sort("created_at", -1).limit(limit)
-    return [serialise(d) async for d in cursor]
+    return [to_mission(serialise(d)) async for d in cursor]
 
 
 @router.get("/{mission_id}")
@@ -81,7 +81,19 @@ async def get_mission(mission_id: str, db: Any = Depends(get_db)) -> dict:
     doc = await db.missions.find_one({"_id": mission_id})
     if doc is None:
         raise HTTPException(status_code=404, detail=f"mission {mission_id} not found")
-    return serialise(doc)
+    deliveries = [
+        serialise(d) async for d in db.deliveries.find({"mission_id": mission_id}).limit(50)
+    ]
+    flight_logs = [
+        serialise(d)
+        async for d in db.flight_logs.find({"mission_id": mission_id})
+        .sort("ts", -1)
+        .limit(200)
+    ]
+    mission = to_mission(serialise(doc))
+    # Keep mission's top-level fields too so legacy clients reading body["_id"]
+    # still work; frontend reads body.mission / body.flight_logs.
+    return {**mission, "mission": mission, "deliveries": deliveries, "flight_logs": flight_logs}
 
 
 async def _next_mission_id(db: Any) -> str:

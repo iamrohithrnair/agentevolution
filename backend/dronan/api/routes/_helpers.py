@@ -107,6 +107,26 @@ def to_drone(doc: dict) -> dict:
     return shaped
 
 
+def to_mission(doc: dict) -> dict:
+    """Add ``id`` alongside ``_id`` and coerce timestamps to epoch ms.
+
+    The frontend ``Mission`` type uses ``id``; legacy clients still see
+    ``_id`` so existing tests keep passing.
+    """
+    if not isinstance(doc, dict):
+        return doc
+    out = dict(doc)
+    out["id"] = str(doc.get("_id") or out.get("id") or "")
+    if "_id" not in out:
+        out["_id"] = out["id"]
+    for key in ("created_at", "updated_at", "started_at", "completed_at"):
+        if key in out:
+            ms = _to_epoch_ms(out[key])
+            if ms is not None:
+                out[key] = ms
+    return out
+
+
 def to_nofly(doc: dict) -> dict:
     """Shape a ``no_fly_zones`` doc into the frontend ``NoFlyZone`` contract."""
     geom = doc.get("geometry") or doc.get("location") or {}
