@@ -107,23 +107,49 @@ def to_drone(doc: dict) -> dict:
     return shaped
 
 
-def to_mission(doc: dict) -> dict:
-    """Add ``id`` alongside ``_id`` and coerce timestamps to epoch ms.
+def to_mission(doc: dict, *, positions: dict[str, list[float]] | None = None) -> dict:
+    """Shape a ``missions`` doc into the frontend ``Mission`` contract.
 
-    The frontend ``Mission`` type uses ``id``; legacy clients still see
-    ``_id`` so existing tests keep passing.
+    Adds ``id``, ``origin_id``, ``eta_seconds``, ``reroutes``, and a
+    ``route: Waypoint[]`` derived from ``planned_route``. ``positions`` is
+    an optional facility-name → ``[lon, lat]`` map; when supplied, route
+    waypoints get real coordinates instead of ``[0, 0]``. Legacy clients
+    keep seeing ``_id`` so existing tests pass.
     """
     if not isinstance(doc, dict):
         return doc
     out = dict(doc)
-    out["id"] = str(doc.get("_id") or out.get("id") or "")
+    mid = str(doc.get("_id") or out.get("id") or "")
+    out["id"] = mid
     if "_id" not in out:
-        out["_id"] = out["id"]
+        out["_id"] = mid
     for key in ("created_at", "updated_at", "started_at", "completed_at"):
         if key in out:
             ms = _to_epoch_ms(out[key])
             if ms is not None:
                 out[key] = ms
+
+    # Map fields the frontend Mission type expects.
+    out.setdefault("origin_id", doc.get("depot") or "Depot")
+    out.setdefault("delivery_ids", doc.get("delivery_ids") or [])
+    out.setdefault("reroutes", doc.get("reroutes") or [])
+    out.setdefault("drone_id", doc.get("drone_id") or "")
+
+    plan = doc.get("plan") if isinstance(doc.get("plan"), dict) else None
+    eta = (plan or {}).get("eta_s") if plan else None
+    out.setdefault("eta_seconds", int(eta) if eta else 180)
+
+    waypoints: list[dict] = []
+    pos_map = positions or {}
+    for node in doc.get("planned_route") or []:
+        label = ""
+        if isinstance(node, dict):
+            label = str(node.get("location") or node.get("label") or "")
+        elif isinstance(node, str):
+            label = node
+        position = pos_map.get(label) or [0.0, 0.0]
+        waypoints.append({"position": position, "label": label})
+    out["route"] = waypoints
     return out
 
 

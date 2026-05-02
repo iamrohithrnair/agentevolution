@@ -70,10 +70,27 @@ class MissionCreate(BaseModel):
         return self.origin_id or self.depot
 
 
+async def _facility_positions(db: Any) -> dict[str, list[float]]:
+    """name → [lon, lat] map for resolving mission waypoints to coordinates."""
+    out: dict[str, list[float]] = {}
+    cursor = db.facilities.find(
+        {}, projection={"name": 1, "location.coordinates": 1, "_id": 1}
+    )
+    async for doc in cursor:
+        coords = (doc.get("location") or {}).get("coordinates")
+        if isinstance(coords, list) and len(coords) >= 2:
+            pos = [float(coords[0]), float(coords[1])]
+            if doc.get("name"):
+                out[str(doc["name"])] = pos
+            out[str(doc.get("_id"))] = pos
+    return out
+
+
 @router.get("")
 async def list_missions(db: Any = Depends(get_db), limit: int = 25) -> list[dict]:
+    positions = await _facility_positions(db)
     cursor = db.missions.find({}).sort("created_at", -1).limit(limit)
-    return [to_mission(serialise(d)) async for d in cursor]
+    return [to_mission(serialise(d), positions=positions) async for d in cursor]
 
 
 @router.get("/{mission_id}")
@@ -81,6 +98,7 @@ async def get_mission(mission_id: str, db: Any = Depends(get_db)) -> dict:
     doc = await db.missions.find_one({"_id": mission_id})
     if doc is None:
         raise HTTPException(status_code=404, detail=f"mission {mission_id} not found")
+    positions = await _facility_positions(db)
     deliveries = [
         serialise(d) async for d in db.deliveries.find({"mission_id": mission_id}).limit(50)
     ]
@@ -90,7 +108,7 @@ async def get_mission(mission_id: str, db: Any = Depends(get_db)) -> dict:
         .sort("ts", -1)
         .limit(200)
     ]
-    mission = to_mission(serialise(doc))
+    mission = to_mission(serialise(doc), positions=positions)
     # Keep mission's top-level fields too so legacy clients reading body["_id"]
     # still work; frontend reads body.mission / body.flight_logs.
     return {**mission, "mission": mission, "deliveries": deliveries, "flight_logs": flight_logs}
