@@ -506,9 +506,9 @@ function logEvent(
 
 function pushAgentMessage(msg: Omit<AgentMessage, "id" | "ts"> & { ts?: number }): void {
   const full: AgentMessage = {
+    ...msg,
     id: nextId("agm"),
     ts: msg.ts ?? Date.now(),
-    ...msg,
   };
   AGENT_MESSAGES.unshift(full);
   if (AGENT_MESSAGES.length > 500) AGENT_MESSAGES.pop();
@@ -539,9 +539,13 @@ function buildRoute(originId: string, deliveries: Delivery[]): Waypoint[] {
 }
 
 function pickDrone(): Drone | null {
+  // Only ever assign drones that are not already committed to another mission.
+  // Falling back to anything-not-fault would happily hand back an in_transit
+  // drone — two parallel simulators then race on setDrone and the marker
+  // teleports between two routes on the map.
   return (
     DRONES.find((d) => d.status === "idle" && d.battery > 50) ??
-    DRONES.find((d) => d.status !== "fault") ??
+    DRONES.find((d) => d.status === "idle" || d.status === "charging") ??
     null
   );
 }
@@ -688,11 +692,15 @@ function simulateMission(missionId: string): SimRunner {
 
     if (cancelled) return;
 
+    const live = MISSIONS.get(mission.id) ?? mission;
     const completed: Mission = {
-      ...MISSIONS.get(mission.id)!,
+      ...live,
       status: "completed",
       completed_at: Date.now(),
-      actual_seconds: Math.round((Date.now() - (mission.started_at ?? mission.created_at)) / 1000),
+      // Read started_at from the live mission — the captured `mission` snapshot
+      // is the original "queued" record from line 559 and never had started_at
+      // assigned, which would inflate actual_seconds by the preflight cascade.
+      actual_seconds: Math.round((Date.now() - (live.started_at ?? live.created_at)) / 1000),
     };
     setMission(completed);
     setDrone({ ...drone, status: "idle", current_mission_id: null, payload_temp_c: null });
@@ -768,7 +776,19 @@ export interface CreateMissionPayload {
   scenario?: string;
 }
 
-export function createMockMission(payload: CreateMissionPayload): {
+export interface CreateMissionOptions {
+  /**
+   * Skip the planner-cascade simulation.  Used by ensureMockSeed to pre-stage a
+   * historical "completed" mission without racing the simulator's status
+   * transitions back to in_transit.
+   */
+  skipSim?: boolean;
+}
+
+export function createMockMission(
+  payload: CreateMissionPayload,
+  options: CreateMissionOptions = {},
+): {
   mission_id: string;
   delivery_ids: string[];
   drone_id: string;
@@ -812,7 +832,9 @@ export function createMockMission(payload: CreateMissionPayload): {
   logEvent(mission, drone, "mission_created", `Mission queued with ${deliveries.length} cargo(s).`);
   bus.emit({ type: "mission_update", mission: { ...mission } });
   // Kick off the simulation on next tick so subscribers can attach.
-  setTimeout(() => simulateMission(id), 50);
+  if (!options.skipSim) {
+    setTimeout(() => simulateMission(id), 50);
+  }
   return {
     mission_id: id,
     delivery_ids: deliveries.map((d) => d.id),
@@ -825,18 +847,35 @@ export function createMockMission(payload: CreateMissionPayload): {
 // not empty on first paint and Playwright can assert on real DOM.
 export function ensureMockSeed(): void {
   if (MISSIONS.size > 0) return;
-  const past = createMockMission({
-    deliveries: [
-      { destination_id: "fac_royal_london", supply: "o_neg_blood", payload_weight_kg: 0.6, priority: "critical", cold_chain_required: true },
-      { destination_id: "fac_kings", supply: "defib", payload_weight_kg: 1.8, priority: "high" },
-    ],
-    scenario: "Whitechapel Trauma",
-  });
-  // Mark the first mission as completed shortly after creation.
-  setTimeout(() => {
-    const m = MISSIONS.get(past.mission_id);
-    if (m) setMission({ ...m, status: "completed", completed_at: Date.now(), actual_seconds: 542 });
-  }, 800);
+  const past = createMockMission(
+    {
+      deliveries: [
+        { destination_id: "fac_royal_london", supply: "o_neg_blood", payload_weight_kg: 0.6, priority: "critical", cold_chain_required: true },
+        { destination_id: "fac_kings", supply: "defib", payload_weight_kg: 1.8, priority: "high" },
+      ],
+      scenario: "Whitechapel Trauma",
+    },
+    { skipSim: true },
+  );
+  // Stage the historical mission as fully completed up-front; with skipSim no
+  // background simulation will overwrite this transition.
+  const m = MISSIONS.get(past.mission_id);
+  if (m) {
+    const startedAt = m.created_at - 542_000;
+    setMission({
+      ...m,
+      status: "completed",
+      started_at: startedAt,
+      completed_at: Date.now(),
+      actual_seconds: 542,
+    });
+    // Idle the drone the seed assignment grabbed so the next dispatch can
+    // pick it cleanly.
+    const seedDrone = DRONES.find((d) => d.id === m.drone_id);
+    if (seedDrone) {
+      setDrone({ ...seedDrone, status: "idle", current_mission_id: null });
+    }
+  }
 }
 
 export function getMockAgentMessages(filters: {
