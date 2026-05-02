@@ -118,7 +118,10 @@ echo "rehearse_recovery: last tool_call_log.ts before kill = ${LAST_TS_BEFORE}"
 # kill -9 the worker(s) matching the pattern
 # --------------------------------------------------------------------------- #
 
-KILL_AT="$(date -u +%s.%N)"
+# Use Python for portable sub-second epoch — BSD date(1) on macOS does not
+# support the %N specifier and would emit a literal "1620000000.%N" that
+# float() rejects downstream.
+KILL_AT="$(uv run python -c "import time; print(f'{time.time():.6f}')")"
 PIDS="$(pgrep -f "${LIVEKIT_PROCESS_PATTERN}" || true)"
 if [[ -z "${PIDS}" ]]; then
   echo "fatal: no process matches '${LIVEKIT_PROCESS_PATTERN}'" >&2
@@ -131,10 +134,27 @@ kill -9 ${PIDS}
 
 # --------------------------------------------------------------------------- #
 # Restart the worker in the background
+#
+# Mirror demo.sh's voice-key gating so a text-mode rehearsal restarts the
+# replacement worker with --text-mode (otherwise it would either fail to
+# connect to LiveKit or SystemExit immediately when the [voice] extras are
+# missing).
 # --------------------------------------------------------------------------- #
 
+VOICE_KEYS_PRESENT="$(uv run python -c "
+from dronan.config import get_settings
+print('1' if get_settings().voice_keys_present() else '0')
+" 2>/dev/null || echo '0')"
+
+if [[ "${VOICE_KEYS_PRESENT}" == "1" ]]; then
+  RESTART_CMD=(uv run python -m dronan.voice.livekit_worker dev)
+else
+  echo "rehearse_recovery: voice keys absent → restarting worker in --text-mode"
+  RESTART_CMD=(uv run python -m dronan.voice.livekit_worker dev --text-mode)
+fi
+
 echo "rehearse_recovery: restarting worker → ${WORKER_LOG}"
-( uv run python -m dronan.voice.livekit_worker dev > "${WORKER_LOG}" 2>&1 & echo $! > .pids/livekit.pid )
+( "${RESTART_CMD[@]}" > "${WORKER_LOG}" 2>&1 & echo $! > .pids/livekit.pid )
 
 # --------------------------------------------------------------------------- #
 # Poll tool_call_log for the first new row after KILL_AT
