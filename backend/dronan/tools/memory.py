@@ -215,7 +215,9 @@ async def summarise_for_planner(
         title = c.get("title") or c.get("text", "")[:60]
         meta = c.get("metadata", {}) or {}
         tags = meta.get("tags") or []
-        line = f"- **{title}** [{c.get('source')}, score={c.get('score'):.3f}]"
+        score = c.get("score")
+        score_repr = f"{score:.3f}" if isinstance(score, (int, float)) else "n/a"
+        line = f"- **{title}** [{c.get('source')}, score={score_repr}]"
         if tags:
             line += f" tags={','.join(tags[:3])}"
         if chars_left - len(line) < 0:

@@ -72,6 +72,21 @@ async def test_find_peers_returns_supervisor_for_routing_query(seeded) -> None:
     )
 
 
+async def test_summarise_for_planner_handles_missing_score(mongo_db) -> None:
+    from backend.dronan.tools.memory import summarise_for_planner
+
+    cards = [
+        {"title": "no score card", "source": "mission_memory", "metadata": {}},
+        {"title": "scored card", "source": "agent_skills", "score": 0.87, "metadata": {}},
+    ]
+    out = await summarise_for_planner(
+        db=mongo_db, cards=cards, idempotency_key="sfp-1"
+    )
+    assert "no score card" in out
+    assert "score=n/a" in out
+    assert "score=0.870" in out
+
+
 async def test_write_reflection_inserts_card(seeded) -> None:
     res = await write_reflection(
         seeded,
