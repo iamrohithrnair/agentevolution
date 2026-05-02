@@ -10,10 +10,13 @@ converge on a single surface.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..deps import get_db
@@ -147,6 +150,70 @@ class InjectObstacleRequest(BaseModel):
     kind: str
     lat: float
     lon: float
+
+
+@router.get("/agents/stream")
+async def agents_stream(
+    request: Request,
+    kind: str = "all",
+    db: Any = Depends(get_db),
+) -> StreamingResponse:
+    """SSE stream of recent agent activity.
+
+    Tails ``mission_memory`` (filtered by ``kind`` when supplied) and
+    ``flight_logs`` and emits one SSE event per insert. Polling-based so
+    it works on engines without change streams (mongomock).
+    """
+
+    def _sse(event: str, data: Any) -> bytes:
+        return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode("utf-8")
+
+    async def gen():
+        yield _sse("ready", {"kind": kind})
+
+        last_mem = datetime.now(timezone.utc)
+        last_log = datetime.now(timezone.utc)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                # Pull new mission_memory cards
+                mem_q: dict = {"created_at": {"$gt": last_mem}}
+                if kind and kind != "all":
+                    mem_q["kind"] = kind
+                async for doc in db.mission_memory.find(mem_q).sort("created_at", 1).limit(20):
+                    last_mem = doc.get("created_at") or last_mem
+                    yield _sse(
+                        "memory",
+                        {
+                            "id": str(doc.get("_id")),
+                            "kind": doc.get("kind"),
+                            "title": doc.get("title"),
+                            "text": doc.get("text"),
+                        },
+                    )
+                # Pull new flight_logs
+                log_q: dict = {"ts": {"$gt": last_log}}
+                async for doc in db.flight_logs.find(log_q).sort("ts", 1).limit(20):
+                    last_log = doc.get("ts") or last_log
+                    yield _sse(
+                        "log",
+                        {
+                            "mission_id": doc.get("mission_id"),
+                            "drone_id": doc.get("drone_id"),
+                            "event": doc.get("event"),
+                            "ts": doc.get("ts"),
+                        },
+                    )
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/internal/inject-obstacle")

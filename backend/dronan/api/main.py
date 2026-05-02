@@ -81,7 +81,16 @@ def create_app(*, db: Any | None = None, watcher_poll_interval: float = 0.5) -> 
         allow_origins=_cors_origins(),
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        # Spell out custom headers explicitly — some browsers reject the
+        # wildcard when ``allow_credentials=True``.
+        allow_headers=[
+            "*",
+            "Content-Type",
+            "Authorization",
+            "Idempotency-Key",
+            "X-Requested-With",
+        ],
+        expose_headers=["*"],
     )
 
     @app.get("/healthz", tags=["meta"])

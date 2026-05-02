@@ -159,6 +159,47 @@ class WatcherHub:
 router = APIRouter()
 
 
+@router.websocket("/ws/dashboard")
+async def ws_dashboard(websocket: WebSocket) -> None:
+    """Multiplexed fan-out of every watched collection.
+
+    The frontend dashboard subscribes here once instead of opening one
+    socket per collection. Each event is wrapped with the source
+    collection name so the client can route it.
+    """
+    await websocket.accept()
+    hub: WatcherHub = websocket.app.state.watchers
+
+    await websocket.send_json(
+        {
+            "type": "ready",
+            "collections": list(WATCHED_COLLECTIONS),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+    queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=1000)
+
+    async def pump(name: str) -> None:
+        watcher = hub.get(name)
+        async for evt in watcher.subscribe():
+            try:
+                queue.put_nowait({"collection": name, **evt})
+            except asyncio.QueueFull:
+                pass
+
+    pumps = [asyncio.create_task(pump(c)) for c in WATCHED_COLLECTIONS]
+    try:
+        while True:
+            evt = await queue.get()
+            await websocket.send_json({"type": "event", **evt})
+    except WebSocketDisconnect:
+        return
+    finally:
+        for p in pumps:
+            p.cancel()
+
+
 @router.websocket("/ws/{collection}")
 async def ws_collection(websocket: WebSocket, collection: str) -> None:
     """Stream inserts/updates from ``collection`` to the client.

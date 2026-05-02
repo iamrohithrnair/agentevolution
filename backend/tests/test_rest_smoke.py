@@ -113,7 +113,9 @@ async def test_mission_create_and_get(client) -> None:
     )
     assert r.status_code == 201
     body = r.json()
-    mid = body["_id"]
+    # Response shape changed to match the frontend contract
+    # ({mission_id, delivery_ids, drone_id, eta_seconds, mission}).
+    mid = body.get("mission_id") or body.get("_id") or body["mission"]["_id"]
     r2 = await client.get(f"/missions/{mid}")
     assert r2.status_code == 200
     assert r2.json()["_id"] == mid
