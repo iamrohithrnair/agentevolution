@@ -278,7 +278,8 @@ class SimulatedSupervisor:
                     "payload": {"step": i, "scenario_tag": self.scenario.tag},
                 }
             )
-        await db.agent_messages.insert_many(audit_msgs)
+        if audit_msgs:
+            await db.agent_messages.insert_many(audit_msgs)
 
         return {
             "mission_id": mission_id,
