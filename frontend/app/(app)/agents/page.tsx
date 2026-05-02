@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, X } from "lucide-react";
+import { Bot } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogClose,
 } from "@/components/ui/dialog";
 import { ReasoningStream } from "@/components/dashboard/ReasoningStream";
 import { listSkills } from "@/lib/api";
@@ -97,23 +96,16 @@ export default function AgentsPage() {
           {selected && (
             <>
               <DialogHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <DialogTitle className="flex items-center gap-2">
-                      <span className="grid h-7 w-7 place-items-center rounded-md bg-[var(--color-accent-soft)] text-[var(--color-accent-fg)]">
-                        <Bot className="h-3.5 w-3.5" />
-                      </span>
-                      {selected.name}
-                    </DialogTitle>
-                    <DialogDescription className="mt-1">
-                      {selected.agent} · {selected.invocations} invocations ·{" "}
-                      {formatPercent(selected.win_rate)} win rate
-                    </DialogDescription>
-                  </div>
-                  <DialogClose className="rounded p-1 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">
-                    <X className="h-4 w-4" />
-                  </DialogClose>
-                </div>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="grid h-7 w-7 place-items-center rounded-md bg-[var(--color-accent-soft)] text-[var(--color-accent-fg)]">
+                    <Bot className="h-3.5 w-3.5" />
+                  </span>
+                  {selected.name}
+                </DialogTitle>
+                <DialogDescription className="mt-1">
+                  {selected.agent} · {selected.invocations} invocations ·{" "}
+                  {formatPercent(selected.win_rate)} win rate
+                </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-4 text-sm">
