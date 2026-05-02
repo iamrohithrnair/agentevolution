@@ -40,7 +40,7 @@ lesson IDs in your reasoning trace (the operator does not hear them, but the
 ReflectionAgent does). Reply in the operator's language; default English.
 
 You will be evaluated on time-to-first-token (≤350 ms) and end-to-end voice
-loop latency (≤1200 ms p50, ≤900 ms p95). Brevity is correctness.
+loop latency (≤600 ms p50, ≤900 ms p95). Brevity is correctness.
 """
 
 
