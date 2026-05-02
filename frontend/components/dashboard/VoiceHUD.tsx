@@ -27,7 +27,11 @@ export function VoiceHUD({ missionId }: Props) {
   const [joining, setJoining] = useState(false);
   const [joined, setJoined] = useState(false);
   const [pressed, setPressed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Keep the Room + attached audio element alive for the lifetime of the session.
+  const roomRef = useRef<unknown>(null);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
 
   // Faux waveform when joined — driven entirely client-side until LiveKit lands.
   useEffect(() => {
@@ -59,20 +63,69 @@ export function VoiceHUD({ missionId }: Props) {
 
   async function join() {
     setJoining(true);
+    setError(null);
     try {
       const session = await fetchLiveKitToken({
         mode,
         language,
         ...(missionId !== undefined ? { missionId } : {}),
       });
-      // In mock/no-livekit mode session.token is empty; we still flip joined so
-      // the surface reflects the design.
+
+      if (!session.url || !session.token) {
+        // Mock / unconfigured — keep the design surface but don't pretend to be live.
+        setJoined(true);
+        return;
+      }
+
+      const { Room, RoomEvent, Track } = await import("livekit-client");
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        publishDefaults: { dtx: true, audioPreset: { maxBitrate: 32_000 } },
+      });
+      roomRef.current = room;
+
+      // Auto-attach remote audio tracks (the Mission Control voice) so the
+      // operator can hear the agent reply.
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) {
+          if (!audioElRef.current) {
+            const el = document.createElement("audio");
+            el.autoplay = true;
+            el.style.display = "none";
+            document.body.appendChild(el);
+            audioElRef.current = el;
+          }
+          track.attach(audioElRef.current!);
+        }
+      });
+
+      await room.connect(session.url, session.token);
+      // Request mic permission and publish a mic track so Deepgram sees the audio.
+      await room.localParticipant.setMicrophoneEnabled(true);
       setJoined(true);
-      // Touch session so eslint doesn't complain.
-      void session.room;
+    } catch (e) {
+      setError((e as Error).message || "Failed to join voice room");
+      setJoined(false);
     } finally {
       setJoining(false);
     }
+  }
+
+  async function leave() {
+    try {
+      const r = roomRef.current as { disconnect?: () => Promise<void> } | null;
+      await r?.disconnect?.();
+    } catch {
+      // best effort
+    }
+    roomRef.current = null;
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      audioElRef.current.remove();
+      audioElRef.current = null;
+    }
+    setJoined(false);
   }
 
   return (
@@ -124,7 +177,7 @@ export function VoiceHUD({ missionId }: Props) {
           <Button
             variant={joined ? "outline" : "default"}
             disabled={joining}
-            onClick={() => (joined ? setJoined(false) : void join())}
+            onClick={() => (joined ? void leave() : void join())}
             className="flex-1 gap-1.5"
           >
             {joining ? "Joining…" : joined ? "Leave room" : "Join voice room"}
@@ -134,8 +187,20 @@ export function VoiceHUD({ missionId }: Props) {
               variant={pressed ? "danger" : "soft"}
               aria-pressed={pressed}
               disabled={!joined}
-              onMouseDown={() => setPressed(true)}
-              onMouseUp={() => setPressed(false)}
+              onMouseDown={async () => {
+                setPressed(true);
+                const r = roomRef.current as
+                  | { localParticipant?: { setMicrophoneEnabled: (v: boolean) => Promise<void> } }
+                  | null;
+                await r?.localParticipant?.setMicrophoneEnabled?.(true);
+              }}
+              onMouseUp={async () => {
+                setPressed(false);
+                const r = roomRef.current as
+                  | { localParticipant?: { setMicrophoneEnabled: (v: boolean) => Promise<void> } }
+                  | null;
+                await r?.localParticipant?.setMicrophoneEnabled?.(false);
+              }}
               onMouseLeave={() => pressed && setPressed(false)}
               className="gap-1.5"
             >
@@ -144,6 +209,12 @@ export function VoiceHUD({ missionId }: Props) {
             </Button>
           )}
         </div>
+
+        {error && (
+          <p className="text-xs text-[var(--color-danger)]" role="alert">
+            {error}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

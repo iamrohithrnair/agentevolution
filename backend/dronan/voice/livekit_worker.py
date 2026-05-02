@@ -642,7 +642,10 @@ def main(argv: list[str] | None = None) -> None:
     cli.run_app(  # type: ignore[union-attr]
         WorkerOptions(  # type: ignore[union-attr, call-arg]
             entrypoint_fnc=agent_entrypoint,
-            agent_name="dronan-mission-control",
+            # No agent_name — lets the worker auto-subscribe to any room the
+            # operator connects to. With an agent_name set, LiveKit requires
+            # an explicit dispatch per room which we don't wire from the
+            # frontend for the hackathon demo.
             prewarm_fnc=_prewarm,
         ),
     )

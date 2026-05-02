@@ -246,9 +246,12 @@ export async function* fetchChatSSE(
     return;
   }
 
-  const r = await fetch(`${env.apiBase}/api/chat`, {
+  const r = await fetch(`${env.apiBase}/api/chat?stream=1`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
     body: JSON.stringify({ message, ...opts }),
     cache: "no-store",
   });

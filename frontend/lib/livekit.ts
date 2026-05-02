@@ -18,7 +18,7 @@ export async function fetchLiveKitToken(opts: {
   language: "en" | "auto";
   missionId?: string;
 }): Promise<LkSession> {
-  if (env.useMocks || !env.livekitUrl) {
+  if (env.useMocks) {
     return {
       url: "",
       token: "",
@@ -28,13 +28,26 @@ export async function fetchLiveKitToken(opts: {
       language: opts.language,
     };
   }
-  const r = await fetch("/api/livekit-token", {
+  const identity = `operator-${Math.random().toString(36).slice(2, 8)}`;
+  const room = opts.missionId ? `dronan-mission-${opts.missionId}` : "dronan-ops";
+  const r = await fetch(`${env.apiBase}/api/livekit/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(opts),
+    body: JSON.stringify({ operator_id: identity, room }),
   });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`LiveKit token: ${r.status} ${body}`);
+  }
+  const data = (await r.json()) as { token?: string; url?: string; room?: string };
+  return {
+    url: data.url ?? env.livekitUrl,
+    token: data.token ?? "",
+    room: data.room ?? room,
+    identity,
+    mode: opts.mode,
+    language: opts.language,
+  };
 }
 
 /**
