@@ -158,7 +158,8 @@ async def test_memory_search(client) -> None:
         json={"query": "deliver blood to royal london", "k": 3},
     )
     assert r.status_code == 200
-    assert isinstance(r.json(), list)
+    body = r.json()
+    assert isinstance(body, dict) and isinstance(body.get("hits"), list)
 
 
 async def test_reports_metrics(client) -> None:
