@@ -78,3 +78,7 @@ def get_sync_db():
 
 async def ping() -> dict:
     return await get_db().command("ping")
+
+
+# Back-compat alias — API main.py imports ``get_motor_db``.
+get_motor_db = get_db
