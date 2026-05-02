@@ -91,6 +91,39 @@ async def test_weather_endpoint(client) -> None:
     assert body["location_id"] == "Royal London"
 
 
+async def test_weather_endpoint_returns_fresh_data(client, mongo_db) -> None:
+    """Regression: weather must reflect the latest observation, not a cached one.
+
+    The ``@mongo_tool``-wrapped reader used to short-circuit on its own
+    args-derived idempotency key, so subsequent calls returned the first
+    observation forever. Reads now bypass the idempotency cache.
+    """
+    r1 = await client.get("/weather/Royal%20London")
+    assert r1.status_code == 200
+    assert r1.json()["flyable"] is True  # seeded calm conditions
+
+    # Replace the observation with a marginal-weather row.
+    await mongo_db.weather_observations.delete_many({"location_id": "Royal London"})
+    new_ts = datetime.now(timezone.utc)
+    await mongo_db.weather_observations.insert_one(
+        {
+            "_id": "wx-RoyalLondon-2",
+            "location_id": "Royal London",
+            "wind_speed_ms": 22.0,
+            "gust_ms": 30.0,
+            "visibility_m": 1000,
+            "condition": "storm",
+            "ts": new_ts,
+        }
+    )
+
+    r2 = await client.get("/weather/Royal%20London")
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["wind_speed_ms"] == 22.0, "stale weather served from cache"
+    assert body["flyable"] is False
+
+
 async def test_chat_creates_history(client) -> None:
     r = await client.post(
         "/chat",
@@ -169,6 +202,26 @@ async def test_reports_metrics(client) -> None:
     assert r.status_code == 200
     body = r.json()
     assert "missions" in body or isinstance(body, dict)
+
+
+async def test_reports_metrics_reflects_new_writes(client, mongo_db) -> None:
+    """Regression: explicit idempotency_key would permanently cache /reports/metrics."""
+    r1 = await client.get("/reports/metrics")
+    assert r1.status_code == 200
+    n1 = r1.json().get("missions", 0)
+
+    # Add 2 new missions and assert the next aggregation reflects them.
+    now = datetime.now(timezone.utc)
+    await mongo_db.missions.insert_many(
+        [
+            {"_id": "M-rep-1", "operator_id": "op", "status": "completed", "created_at": now, "updated_at": now},
+            {"_id": "M-rep-2", "operator_id": "op", "status": "completed", "created_at": now, "updated_at": now},
+        ]
+    )
+    r2 = await client.get("/reports/metrics")
+    assert r2.status_code == 200
+    n2 = r2.json().get("missions", 0)
+    assert n2 >= n1 + 2, f"metrics returned stale data: {n1} -> {n2}"
 
 
 async def test_internal_replan_404(client) -> None:

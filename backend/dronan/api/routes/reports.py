@@ -15,9 +15,8 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 @router.get("/metrics")
 async def metrics(since_minutes: int = 60, db: Any = Depends(get_db)) -> dict:
-    res = await aggregate_metrics(
-        db=db,
-        since_minutes=since_minutes,
-        idempotency_key=f"report:metrics:{since_minutes}",
-    )
+    # No explicit idempotency_key: metrics are freshness-sensitive. An
+    # explicit key would make the @mongo_tool decorator return the first
+    # aggregation forever and never reflect new missions / deliveries.
+    res = await aggregate_metrics(db=db, since_minutes=since_minutes)
     return serialise(res)

@@ -111,12 +111,16 @@ async def list_reflections(
 
 @router.post("/search")
 async def search_memory(req: MemoryQuery, db: Any = Depends(get_db)) -> dict:
+    # No explicit idempotency_key: a truncated key would collide on prefix
+    # and ignore ``k``, and even an exact key would permanently cache the
+    # first result so newly embedded memories never appear in search. The
+    # @mongo_tool decorator's read-class branch handles auditing without
+    # caching.
     cards = await vector_search(
         db=db,
         query=req.query,
         collection="mission_memory",
         k=req.k,
-        idempotency_key=f"mem-search:{req.query[:32]}",
     )
     return {"hits": [_to_memory_hit(c) for c in cards]}
 

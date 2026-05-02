@@ -59,16 +59,21 @@ def create_app(*, db: Any | None = None, watcher_poll_interval: float = 0.5) -> 
         if db is not None:
             app.state.db = db
         else:
-            from ..db import get_motor_db
+            from ..db import get_db
 
-            app.state.db = get_motor_db()
+            app.state.db = get_db()
         app.state.watchers = WatcherHub(
             app.state.db, poll_interval=watcher_poll_interval
         )
+        # Strong references for fire-and-forget tasks (Python 3.12+ only
+        # keeps weak refs to the running loop's tasks).
+        app.state.background_tasks = set()
         try:
             yield
         finally:
             await app.state.watchers.aclose()
+            for t in list(app.state.background_tasks):
+                t.cancel()
 
     app = FastAPI(
         title="Dronan API",

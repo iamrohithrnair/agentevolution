@@ -89,11 +89,20 @@ async def post_chat(turn: ChatTurn, request: Request, db: Any = Depends(get_db))
     )
 
     if turn.run_graph:
+        # Schedule the graph asynchronously — WS clients will pick up the
+        # writes via change-streams. Hold a strong reference to the task on
+        # ``app.state.background_tasks``: Python 3.12+ only weak-refs running
+        # tasks, so an unsaved ``create_task(...)`` can be GCed mid-flight.
         from ..main import run_graph_in_background
 
-        asyncio.create_task(
-            run_graph_in_background(db=db, mission_id=mission_id, request=text)
-        )
+        coro = run_graph_in_background(db=db, mission_id=mission_id, request=text)
+        task = asyncio.create_task(coro)
+        bg = getattr(request.app.state, "background_tasks", None)
+        if bg is None:  # defensive — lifespan should have created it
+            bg = set()
+            request.app.state.background_tasks = bg
+        bg.add(task)
+        task.add_done_callback(bg.discard)
 
     accept = request.headers.get("accept", "")
     wants_sse = "text/event-stream" in accept or request.query_params.get("stream") == "1"
