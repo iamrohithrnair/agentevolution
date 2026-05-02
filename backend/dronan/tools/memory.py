@@ -177,18 +177,28 @@ async def embed_and_store(
         "use_count": 0,
         "score_ema": 0.0,
     }
+    filt = {
+        "kind": kind,
+        "source_collection": source_collection,
+        "source_id": source_id,
+        "title": doc["title"],
+    }
     res = await db.mission_memory.update_one(
-        {
-            "kind": kind,
-            "source_collection": source_collection,
-            "source_id": source_id,
-            "title": doc["title"],
-        },
+        filt,
         {"$set": doc},
         upsert=True,
     )
+    # Surface the persisted ``_id`` so callers (notably ``reflection_node``)
+    # can reference the card. ``upserted_id`` only exists on insert; on
+    # update we have to look it up.
+    if res.upserted_id is not None:
+        doc_id = res.upserted_id
+    else:
+        existing = await db.mission_memory.find_one(filt, projection={"_id": 1})
+        doc_id = existing.get("_id") if existing else None
     return {
         "inserted": bool(res.upserted_id),
+        "id": str(doc_id) if doc_id is not None else None,
         "kind": kind,
         "title": doc["title"],
         "source_collection": source_collection,

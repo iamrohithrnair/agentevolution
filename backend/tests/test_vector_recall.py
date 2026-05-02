@@ -95,8 +95,11 @@ async def test_write_reflection_inserts_card(seeded) -> None:
         title="Southern corridor preference",
     )
     assert res["inserted"] is True
+    # Regression: callers (e.g. reflection_node) need a real id back, not None.
+    assert res.get("id"), f"write_reflection did not surface an id: {res!r}"
     found = await seeded.mission_memory.find_one(
         {"source_collection": "missions", "source_id": "MED-TEST-1"}
     )
     assert found is not None
     assert found["kind"] == "reflection"
+    assert str(found["_id"]) == res["id"]
