@@ -46,7 +46,7 @@ export async function createRoom(): Promise<LkRoom> {
   return new Room({
     adaptiveStream: true,
     dynacast: true,
-    publishDefaults: { audioPreset: { maxBitrate: 32_000, dtx: true } },
+    publishDefaults: { dtx: true, audioPreset: { maxBitrate: 32_000 } },
   });
 }
 
