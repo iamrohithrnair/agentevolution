@@ -568,7 +568,11 @@ async def agent_entrypoint(job: Any) -> None:
 
         @function_tool  # type: ignore[misc]
         async def fleet_status(self) -> str:
-            """Describe the fleet: how many drones, which are flying, battery ranges."""
+            """Describe the fleet: how many drones, which are flying, battery ranges.
+
+            Call this when the operator asks things like 'fleet status',
+            'how many drones', 'are any drones in the air'.
+            """
             total = 0
             flying = 0
             idle = 0
@@ -587,6 +591,281 @@ async def agent_entrypoint(job: Any) -> None:
             return (
                 f"{total} drones. {flying} airborne, {idle} idle. "
                 f"Battery range {min(batteries):.0f} to {max(batteries):.0f} percent."
+            )
+
+        @function_tool  # type: ignore[misc]
+        async def active_missions(self) -> str:
+            """List missions in flight right now.
+
+            Call this when the operator asks 'what missions are running',
+            'which missions are in the air', 'what's active'.
+            """
+            cursor = db.missions.find(
+                {"status": {"$in": ["planned", "executing", "in_transit"]}}
+            ).sort("created_at", -1).limit(10)
+            rows = [doc async for doc in cursor]
+            if not rows:
+                return "No active missions. Fleet is idle."
+            summaries = [
+                f"{r['_id']} ({r.get('status')}) to {(r.get('stops') or ['unknown'])[0]}"
+                for r in rows
+            ]
+            return f"{len(rows)} active mission(s): " + "; ".join(summaries) + "."
+
+        @function_tool  # type: ignore[misc]
+        async def mission_status(self, mission_id: str) -> str:
+            """Get the current status of a specific mission by id.
+
+            Args:
+                mission_id: Full mission id like "MED-0012" or just the
+                    numeric suffix like "12".
+            """
+            mid = mission_id.strip().upper()
+            if not mid.startswith("MED-"):
+                # Try to coerce "twelve" / "12" / "MED 12" into MED-####.
+                digits = "".join(c for c in mid if c.isdigit())
+                if digits:
+                    mid = f"MED-{int(digits):04d}"
+            doc = await db.missions.find_one({"_id": mid})
+            if not doc:
+                return f"Mission {mid} not found."
+            status = doc.get("status", "unknown")
+            drone = doc.get("drone_id", "unknown drone")
+            stop = (doc.get("stops") or ["unknown"])[0]
+            reroutes = len(doc.get("reroutes") or [])
+            extra = f" with {reroutes} reroute{'s' if reroutes != 1 else ''}." if reroutes else "."
+            return (
+                f"Mission {mid} is {status}, flown by {drone}, destination "
+                f"{stop}{extra}"
+            )
+
+        @function_tool  # type: ignore[misc]
+        async def search_memory(self, query: str, limit: int = 3) -> str:
+            """Recall past mission lessons related to a topic via Atlas Vector Search.
+
+            Call this when the operator asks 'what have we learned about X',
+            'any lessons on wind', 'pull up past issues with cold chain'.
+
+            Args:
+                query: What to search for. Free-text.
+                limit: How many lessons to return (default 3, max 5).
+            """
+            limit = max(1, min(5, int(limit)))
+            try:
+                from dronan.tools.memory import vector_search  # noqa: PLC0415
+
+                hits = await vector_search(
+                    db=db,
+                    query=query,
+                    collection="mission_memory",
+                    k=limit,
+                    idempotency_key=f"voice-mem-{query[:24]}",
+                )
+            except Exception:
+                hits = []
+            # Fallback to a keyword scan if vector search is unavailable.
+            if not hits:
+                q_low = query.lower()
+                hits = []
+                async for doc in db.mission_memory.find(
+                    {"kind": "reflection"}, projection={"embedding": 0, "embedding_model": 0}
+                ).limit(20):
+                    text = (doc.get("text") or doc.get("title") or "").lower()
+                    if any(tok in text for tok in q_low.split() if len(tok) > 3):
+                        hits.append(doc)
+                    if len(hits) >= limit:
+                        break
+            if not hits:
+                return f"No past lessons found for {query!r}."
+            lines = [
+                f"{i + 1}. {(h.get('text') or h.get('title') or '').split('.')[0][:160]}."
+                for i, h in enumerate(hits[:limit])
+            ]
+            return f"Found {len(lines)} lesson(s) on {query!r}. " + " ".join(lines)
+
+        @function_tool  # type: ignore[misc]
+        async def write_reflection(self, text: str, mission_id: str = "") -> str:
+            """Save an operator-provided lesson into mission_memory.
+
+            Call this when the operator says 'remember that', 'note that',
+            'write down', 'save this lesson'. The lesson shows up live on
+            the Reflections page.
+
+            Args:
+                text: The lesson to record, in the operator's own words.
+                mission_id: Optional mission id to tag the reflection with.
+            """
+            import uuid as _uuid  # noqa: PLC0415
+            from datetime import datetime as _dt, timezone as _tz  # noqa: PLC0415
+
+            now = _dt.now(_tz.utc)
+            doc = {
+                "_id": f"mm_{_uuid.uuid4().hex[:10]}",
+                "kind": "reflection",
+                "title": "Operator note",
+                "text": text.strip(),
+                "embedding": [0.0] * 1024,  # placeholder; real retriever rewrites on recall
+                "embedding_model": "voice-placeholder",
+                "source_collection": "voice",
+                "source_id": mission_id or "voice-operator",
+                "created_at": now,
+            }
+            try:
+                await db.mission_memory.insert_one(doc)
+            except Exception as exc:
+                return f"Could not save the reflection: {exc}"
+            return "Reflection saved. It's now in mission memory and on the Reflections page."
+
+        @function_tool  # type: ignore[misc]
+        async def simulate_weather(
+            self, location: str = "homerton", severity: str = "high"
+        ) -> str:
+            """Inject a synthetic weather event to demo the replanner.
+
+            Call when the operator says 'simulate a storm', 'inject bad weather',
+            'make it rain over X'. The weather observation is written to
+            MongoDB which triggers the Atlas change stream listeners.
+
+            Args:
+                location: Human name of the facility / area, defaults to "homerton".
+                severity: "low" | "medium" | "high" | "extreme".
+            """
+            from datetime import datetime as _dt, timezone as _tz  # noqa: PLC0415
+
+            sev = severity.lower() if severity.lower() in ("low", "medium", "high", "extreme") else "high"
+            cls = {
+                "low": "breezy",
+                "medium": "marginal",
+                "high": "no_go",
+                "extreme": "grounded",
+            }[sev]
+            doc = {
+                "location_id": location,
+                "wind_kph": 25.0 if sev == "low" else 55.0,
+                "precip_mm_h": 0.5 if sev == "low" else 10.0,
+                "visibility_m": 10000 if sev == "low" else 2000,
+                "classification": cls,
+                "flyable": sev == "low",
+                "ts": _dt.now(_tz.utc),
+                "source": "voice-operator",
+            }
+            try:
+                await db.weather_observations.insert_one(doc)
+            except Exception as exc:
+                return f"Could not inject weather: {exc}"
+            return (
+                f"Storm injected over {location} with severity {sev}. Replanner "
+                "should react within a couple of seconds."
+            )
+
+        @function_tool  # type: ignore[misc]
+        async def inject_obstacle(
+            self, kind: str = "bird", mission_id: str = ""
+        ) -> str:
+            """Simulate an obstacle detection so the vision + replanner path fires.
+
+            Call when the operator says 'drop an obstacle', 'inject a drone in
+            the airspace', 'simulate a bird strike'.
+
+            Args:
+                kind: What kind of obstacle — 'bird', 'drone', 'tower', etc.
+                mission_id: Optional mission id to associate the event with.
+            """
+            import uuid as _uuid  # noqa: PLC0415
+            from datetime import datetime as _dt, timezone as _tz  # noqa: PLC0415
+
+            log_id = f"fl_{_uuid.uuid4().hex[:10]}"
+            doc = {
+                "_id": log_id,
+                "id": log_id,
+                "mission_id": mission_id or "voice-demo",
+                "drone_id": None,
+                "event": "obstacle_detected",
+                "kind": kind,
+                "position": {"type": "Point", "coordinates": [-0.063, 51.519]},
+                "ts": _dt.now(_tz.utc),
+                "source": "voice-operator",
+            }
+            try:
+                await db.flight_logs.insert_one(doc)
+            except Exception as exc:
+                return f"Could not log the obstacle: {exc}"
+            return (
+                f"Obstacle of kind {kind} logged. It's now on the Logs page and "
+                "the vision agent will flag it in the reasoning stream."
+            )
+
+        @function_tool  # type: ignore[misc]
+        async def list_facilities(self, limit: int = 5) -> str:
+            """Name a handful of the facilities the fleet can deliver to.
+
+            Call when the operator asks 'what hospitals can we fly to',
+            'list destinations', 'where can I send the drone'.
+
+            Args:
+                limit: How many names to read back (default 5, max 10).
+            """
+            limit = max(1, min(10, int(limit)))
+            cursor = db.facilities.find({"type": "hospital"}).limit(limit)
+            names = [doc.get("name") async for doc in cursor if doc.get("name")]
+            if not names:
+                cursor = db.facilities.find({}).limit(limit)
+                names = [doc.get("name") async for doc in cursor if doc.get("name")]
+            if not names:
+                return "No facilities are seeded in the database yet."
+            return f"I can deliver to: {', '.join(names)}."
+
+        @function_tool  # type: ignore[misc]
+        async def list_no_fly_zones(self) -> str:
+            """Name the active no-fly zones. Call when the operator asks about
+            restricted airspace, TFRs, or no-fly polygons.
+            """
+            cursor = db.no_fly_zones.find({}).limit(10)
+            names = [
+                f"{doc.get('name', 'unnamed')} ({doc.get('severity', 'unknown')})"
+                async for doc in cursor
+            ]
+            if not names:
+                return "No no-fly zones are configured."
+            return f"Active no-fly zones: {'; '.join(names)}."
+
+        @function_tool  # type: ignore[misc]
+        async def fleet_metrics(self, window_minutes: int = 60) -> str:
+            """Summarise fleet performance over the last N minutes.
+
+            Call when the operator asks 'how are we doing', 'any metrics',
+            'mission throughput', 'what's the analytics look like'.
+
+            Args:
+                window_minutes: Lookback window. Default 60.
+            """
+            from datetime import datetime as _dt, timedelta as _td, timezone as _tz  # noqa: PLC0415
+
+            since = _dt.now(_tz.utc) - _td(minutes=max(1, int(window_minutes)))
+            missions_total = await db.missions.count_documents({"created_at": {"$gte": since}})
+            completed = await db.missions.count_documents(
+                {"created_at": {"$gte": since}, "status": "completed"}
+            )
+            reroutes_cursor = db.missions.aggregate(
+                [
+                    {"$match": {"created_at": {"$gte": since}}},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "reroutes": {"$sum": {"$size": {"$ifNull": ["$reroutes", []]}}},
+                        }
+                    },
+                ]
+            )
+            reroutes_doc = await reroutes_cursor.to_list(length=1)
+            reroutes = reroutes_doc[0].get("reroutes", 0) if reroutes_doc else 0
+            reflections = await db.mission_memory.count_documents(
+                {"kind": "reflection", "created_at": {"$gte": since}}
+            )
+            return (
+                f"Last {window_minutes} minutes: {missions_total} missions launched, "
+                f"{completed} completed, {reroutes} reroutes, "
+                f"{reflections} new reflection{'s' if reflections != 1 else ''} written."
             )
 
     # Build the voice pipeline.
