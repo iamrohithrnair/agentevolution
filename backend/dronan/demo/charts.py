@@ -129,13 +129,18 @@ def render_actual_time_svg(
     sm1_line = ""
     sm1_text = ""
     if len(pts) >= 3:
-        target = pts[0].actual_time_s * 0.9
+        # SM-1 is specifically Take-3 ÷ Take-1; not last-take ÷ first-take.
+        # Locate by ``take`` field rather than positional index, since
+        # the runner could in principle skip a take number.
+        take_1 = next((p for p in pts if p.take == 1), pts[0])
+        take_3 = next((p for p in pts if p.take == 3), pts[2])
+        target = take_1.actual_time_s * 0.9
         target_y = _scale(target, y_lo, y_hi, plot_bottom, plot_top)
         sm1_line = (
             f'<line x1="{plot_left}" y1="{target_y:.1f}" x2="{plot_right}" y2="{target_y:.1f}" '
             f'stroke="{TARGET_COLOUR}" stroke-width="1.5" stroke-dasharray="6,4" />'
         )
-        ratio = pts[-1].actual_time_s / pts[0].actual_time_s if pts[0].actual_time_s else 1.0
+        ratio = take_3.actual_time_s / take_1.actual_time_s if take_1.actual_time_s else 1.0
         passes = ratio < 0.9
         verdict = "PASS" if passes else "MISS"
         sm1_text = (
