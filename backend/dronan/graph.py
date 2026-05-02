@@ -43,6 +43,17 @@ def _wrap_with_db(node: Callable[..., Awaitable[dict]], db: Any) -> Callable[...
     return _runner
 
 
+def build_supervisor(*, db: Any, checkpointer: BaseCheckpointSaver | None = None):
+    """Alias for ``build_graph`` — kept for the voice worker's lazy import.
+
+    The LiveKit worker (``dronan.voice.livekit_worker``) imports this name
+    lazily so it can fall back cleanly when the graph module is absent. It
+    returns the same compiled ``StateGraph`` with the database curried into
+    every node.
+    """
+    return build_graph(db=db, checkpointer=checkpointer)
+
+
 def build_graph(
     *,
     db: Any,
