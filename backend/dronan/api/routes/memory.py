@@ -30,6 +30,20 @@ class ReflectionWrite(BaseModel):
     tags: list[str] = []
 
 
+@router.get("/reflections")
+async def list_reflections(
+    db: Any = Depends(get_db),
+    limit: int = 50,
+) -> list[dict]:
+    """Return the most recent ``kind:"reflection"`` cards from mission_memory."""
+    cursor = (
+        db.mission_memory.find({"kind": "reflection"})
+        .sort("created_at", -1)
+        .limit(max(1, min(limit, 200)))
+    )
+    return [serialise(doc) async for doc in cursor]
+
+
 @router.post("/search")
 async def search_memory(req: MemoryQuery, db: Any = Depends(get_db)) -> list[dict]:
     cards = await vector_search(

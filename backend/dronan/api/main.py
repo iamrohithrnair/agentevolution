@@ -88,19 +88,25 @@ def create_app(*, db: Any | None = None, watcher_poll_interval: float = 0.5) -> 
     async def healthz() -> dict:
         return {"status": "ok", "ts": datetime.now(timezone.utc).isoformat()}
 
-    # REST routers
-    app.include_router(chat_router)
-    app.include_router(missions_router)
-    app.include_router(deliveries_router)
-    app.include_router(drones_router)
-    app.include_router(facilities_router)
-    app.include_router(weather_router)
-    app.include_router(nofly_router)
-    app.include_router(memory_router)
-    app.include_router(reports_router)
-    app.include_router(livekit_router)
+    # REST routers — mounted at both root (backward compat) and /api
+    # (frontend convention). `no-fly-zones` is the plural kebab-case alias
+    # the frontend uses for the nofly router.
+    from .routes._frontend_compat import router as frontend_compat_router
 
-    # Internal (Atlas Triggers)
+    for prefix in ("", "/api"):
+        app.include_router(chat_router, prefix=prefix)
+        app.include_router(missions_router, prefix=prefix)
+        app.include_router(deliveries_router, prefix=prefix)
+        app.include_router(drones_router, prefix=prefix)
+        app.include_router(facilities_router, prefix=prefix)
+        app.include_router(weather_router, prefix=prefix)
+        app.include_router(nofly_router, prefix=prefix)
+        app.include_router(memory_router, prefix=prefix)
+        app.include_router(reports_router, prefix=prefix)
+        app.include_router(livekit_router, prefix=prefix)
+        app.include_router(frontend_compat_router, prefix=prefix)
+
+    # Internal (Atlas Triggers) — only at root.
     app.include_router(internal_router)
 
     # WebSocket
