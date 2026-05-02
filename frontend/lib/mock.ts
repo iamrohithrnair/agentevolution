@@ -629,10 +629,15 @@ function simulateMission(missionId: string): SimRunner {
         };
         bus.emit({ type: "telemetry", frame });
 
-        // Refresh drone snapshot occasionally.
+        // Refresh drone snapshot occasionally — read the live drone from the
+        // DRONES array so transitions written by other code (status, current
+        // mission id) survive across the spread.
         if (i === ticks || i % 4 === 0) {
+          const liveDrone = DRONES.find((d) => d.id === drone.id) ?? drone;
           setDrone({
-            ...drone,
+            ...liveDrone,
+            status: "in_transit",
+            current_mission_id: mission.id,
             position: pos,
             heading_deg: heading,
             battery,
@@ -703,8 +708,18 @@ function simulateMission(missionId: string): SimRunner {
       actual_seconds: Math.round((Date.now() - (live.started_at ?? live.created_at)) / 1000),
     };
     setMission(completed);
-    setDrone({ ...drone, status: "idle", current_mission_id: null, payload_temp_c: null });
-    logEvent(completed, drone, "mission_complete", "Mission complete · all cargo signed for.");
+    // Preserve the live drone state (depleted battery, final position) when
+    // transitioning back to idle.  Spreading the captured snapshot would
+    // restore the pre-flight battery and origin position.
+    const finalDrone = DRONES.find((d) => d.id === drone.id) ?? drone;
+    setDrone({
+      ...finalDrone,
+      status: "idle",
+      current_mission_id: null,
+      payload_temp_c: null,
+      last_seen: Date.now(),
+    });
+    logEvent(completed, finalDrone, "mission_complete", "Mission complete · all cargo signed for.");
 
     pushAgentMessage({
       kind: "reflection",
