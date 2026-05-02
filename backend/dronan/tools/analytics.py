@@ -36,7 +36,7 @@ async def aggregate_metrics(
     delivery_count = await db.deliveries.count_documents({"created_at": {"$gte": since}})
 
     pipeline = [
-        {"$match": {"started_at": {"$gte": since}, "status": "completed"}},
+        {"$match": {"started_at": {"$gte": since}, "status": {"$in": ["success", "completed"]}}},
         {
             "$group": {
                 "_id": "$tool",

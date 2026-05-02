@@ -148,8 +148,11 @@ def mongo_tool(
                 tool=tool_name, args_hash=args_hash, explicit=explicit_key
             )
 
+            # The Atlas validator on ``tool_call_log`` uses {pending, success,
+            # error}. Older code wrote {pending, completed, failed}; accept
+            # both on read so historical rows still short-circuit.
             existing = await db.tool_call_log.find_one(
-                {"idempotency_key": key, "status": "completed"}
+                {"idempotency_key": key, "status": {"$in": ["success", "completed"]}}
             )
             if existing is not None:
                 return existing.get("result")
@@ -182,7 +185,7 @@ def mongo_tool(
                     {"idempotency_key": key},
                     {
                         "$set": {
-                            "status": "failed",
+                            "status": "error",  # matches the tool_call_log enum
                             "error": str(exc),
                             "completed_at": _utcnow(),
                         }
@@ -194,7 +197,7 @@ def mongo_tool(
                 {"idempotency_key": key},
                 {
                     "$set": {
-                        "status": "completed",
+                        "status": "success",  # matches the tool_call_log enum
                         "completed_at": _utcnow(),
                         "result": result,
                         "result_hash": sha256_hex(result),

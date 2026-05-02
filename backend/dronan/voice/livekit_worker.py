@@ -698,14 +698,25 @@ async def agent_entrypoint(job: Any) -> None:
             import uuid as _uuid  # noqa: PLC0415
             from datetime import datetime as _dt, timezone as _tz  # noqa: PLC0415
 
+            from dronan.embeddings.voyage import embed as _embed  # noqa: PLC0415
+
+            clean = text.strip()
             now = _dt.now(_tz.utc)
+            # Real embedding via Voyage so this card is recallable by
+            # search_memory in future sessions. Degrade cleanly on failure.
+            try:
+                vec = await _embed(clean, db=db, dim=settings.voyage_dim)
+                emb_model = settings.voyage_model
+            except Exception:
+                vec = [0.0] * 1024
+                emb_model = "voice-placeholder"
             doc = {
                 "_id": f"mm_{_uuid.uuid4().hex[:10]}",
                 "kind": "reflection",
                 "title": "Operator note",
-                "text": text.strip(),
-                "embedding": [0.0] * 1024,  # placeholder; real retriever rewrites on recall
-                "embedding_model": "voice-placeholder",
+                "text": clean,
+                "embedding": vec,
+                "embedding_model": emb_model,
                 "source_collection": "voice",
                 "source_id": mission_id or "voice-operator",
                 "created_at": now,

@@ -412,19 +412,34 @@ async def simulate_mission(
             ),
         )
         # Write a reflection card so the Reflections feed updates live too.
+        text = (
+            f"{mission_id} delivered to {points[1][0] if len(points) > 1 else depot_name} "
+            f"and returned in ~{int(step_seconds * steps_per_leg * (len(points) - 1))}s. "
+            f"{'Rerouted once around a weather cell; ' if 'rerouted' in locals() and rerouted else ''}"
+            "Battery envelope normal."
+        )
+        try:
+            # Real embedding so $vectorSearch can actually recall this card
+            # next time. Falls back to the deterministic stub if voyage is
+            # unreachable.
+            from dronan.embeddings.voyage import embed as _embed  # noqa: PLC0415
+            from dronan.config import get_settings as _get_settings  # noqa: PLC0415
+
+            vec = await _embed(text, db=db, dim=_get_settings().voyage_dim)
+            model_name = _get_settings().voyage_model
+        except Exception as exc:
+            log.debug("voyage embed failed, using zero vector: %s", exc)
+            vec = [0.0] * 1024
+            model_name = "sim-placeholder"
         try:
             await db.mission_memory.insert_one(
                 {
                     "_id": f"mm_{uuid.uuid4().hex[:10]}",
                     "kind": "reflection",
                     "title": f"{mission_id}: clean run",
-                    "text": (
-                        f"{mission_id} delivered to {points[1][0] if len(points) > 1 else depot_name} "
-                        f"and returned in ~{int(step_seconds * steps_per_leg * (len(points) - 1))}s. "
-                        "No reroutes; battery envelope normal."
-                    ),
-                    "embedding": [0.0] * 1024,  # filled by real retriever in prod
-                    "embedding_model": "sim-placeholder",
+                    "text": text,
+                    "embedding": vec,
+                    "embedding_model": model_name,
                     "source_collection": "missions",
                     "source_id": mission_id,
                     "created_at": now,

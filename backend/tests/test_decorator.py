@@ -43,7 +43,9 @@ async def test_decorator_short_circuits_on_completed(mongo_db) -> None:
     assert counter["n"] == 1
     log = await mongo_db.tool_call_log.find_one({"idempotency_key": "add_one:k1"})
     assert log is not None
-    assert log["status"] == "completed"
+    # Completed rows use status="success" to match the Atlas validator
+    # on tool_call_log (enum: pending | success | error).
+    assert log["status"] in ("success", "completed")
     assert log["result_hash"]
 
 
@@ -56,7 +58,8 @@ async def test_decorator_records_failures(mongo_db) -> None:
         await boom(db=mongo_db, idempotency_key="bk")
     log = await mongo_db.tool_call_log.find_one({"idempotency_key": "boom:bk"})
     assert log is not None
-    assert log["status"] == "failed"
+    # Failed rows use status="error" to match the Atlas validator.
+    assert log["status"] in ("error", "failed")
     assert log["error"] == "boom"
 
 

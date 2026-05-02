@@ -74,7 +74,7 @@ async def test_checkpoint_resumes_without_duplicate_tool_calls(fully_seeded) -> 
     await graph.ainvoke(initial, config=config)
     first_keys = {
         d["idempotency_key"]
-        async for d in db.tool_call_log.find({"status": "completed"})
+        async for d in db.tool_call_log.find({"status": {"$in": ["success", "completed"]}})
     }
 
     # Second run — same thread_id, should resume from saved checkpoint.
@@ -83,7 +83,7 @@ async def test_checkpoint_resumes_without_duplicate_tool_calls(fully_seeded) -> 
 
     second_keys = {
         d["idempotency_key"]
-        async for d in db.tool_call_log.find({"status": "completed"})
+        async for d in db.tool_call_log.find({"status": {"$in": ["success", "completed"]}})
     }
 
     # Same set of completed tool-call keys → tools were memoised.
