@@ -115,9 +115,25 @@ def mongo_tool(
                 return await inner(*args, **kwargs)
 
             explicit_key = kwargs.pop("idempotency_key", None)
-            trace_id = kwargs.pop("trace_id", None)
-            mission_id = kwargs.pop("mission_id", None)
-            agent_name = kwargs.pop("agent", agent)
+            # ``trace_id`` / ``mission_id`` / ``agent`` are stamped on the log
+            # row. We only pop them when the wrapped function does NOT declare
+            # them itself — otherwise the inner body needs them.
+            inner_params = inspect.signature(inner).parameters
+            trace_id = (
+                kwargs.pop("trace_id", None)
+                if "trace_id" not in inner_params
+                else kwargs.get("trace_id")
+            )
+            mission_id = (
+                kwargs.get("mission_id")
+                if "mission_id" in inner_params
+                else kwargs.pop("mission_id", None)
+            )
+            agent_name = (
+                kwargs.pop("agent", agent)
+                if "agent" not in inner_params
+                else kwargs.get("agent", agent)
+            )
 
             # Strip db before hashing so the same call across processes hits
             # the same idempotency key.

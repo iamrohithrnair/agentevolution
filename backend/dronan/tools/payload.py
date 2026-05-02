@@ -38,8 +38,7 @@ async def cold_chain_predict(
     if flight_minutes < 0:
         raise ToolError("flight_minutes must be non-negative")
 
-    k = max(_K_NO_PACK, _K_NO_PACK + _K_PER_PACK * 0 - _K_PER_PACK * ice_pack_count)
-    k = max(0.005, k)
+    k = max(0.005, _K_NO_PACK - _K_PER_PACK * ice_pack_count)
     delta = ambient_temp_c - initial_temp_c
     predicted = ambient_temp_c - delta * math.exp(-k * flight_minutes)
 
