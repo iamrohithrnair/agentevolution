@@ -203,7 +203,7 @@ function pivot(
 ): Row[] {
   const takes = new Set<number>();
   for (const s of scenarios) for (const t of s.takes) takes.add(t.take_n);
-  const sorted = Array.from(takes).sort();
+  const sorted = Array.from(takes).sort((a, b) => a - b);
   return sorted.map((take_n) => {
     const row: Row = { take_n };
     for (const s of scenarios) {

@@ -47,12 +47,16 @@ export function MemoryInspector({ initialQuery }: Props) {
     let cancelled = false;
     setLoading(true);
     const t = setTimeout(() => {
-      memorySearch(query, 5).then(({ hits }) => {
-        if (!cancelled) {
-          setHits(hits);
-          setLoading(false);
-        }
-      });
+      memorySearch(query, 5)
+        .then(({ hits }) => {
+          if (!cancelled) {
+            setHits(hits);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoading(false);
+        });
     }, 250);
     return () => {
       cancelled = true;

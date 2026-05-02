@@ -640,13 +640,18 @@ function simulateMission(missionId: string): SimRunner {
         await sleep(tickMs);
       }
 
-      // Maybe inject a reroute on the second leg of the first scenario.
-      if (leg === 1 && mission.delivery_ids.length >= 2 && !mission.reroutes.length) {
+      // Maybe inject a reroute on the second leg of the first scenario.  Read
+      // the live mission from the store rather than the captured snapshot —
+      // the store has the latest status/started_at from the takeoff transition
+      // above, and overwriting it with the stale snapshot would briefly flip
+      // the badge back to "queued".
+      const live = MISSIONS.get(mission.id);
+      if (live && leg === 1 && live.delivery_ids.length >= 2 && !live.reroutes.length) {
         const updated: Mission = {
-          ...mission,
-          reroutes: [...mission.reroutes, { ts: Date.now(), reason: "Storm class III near Homerton" }],
+          ...live,
+          reroutes: [...live.reroutes, { ts: Date.now(), reason: "Storm class III near Homerton" }],
         };
-        MISSIONS.set(mission.id, updated);
+        MISSIONS.set(updated.id, updated);
         logEvent(updated, drone, "reroute", "ReplannerAgent: shifted to northern corridor (+0.3 km, −80 s).", {
           reason: "weather",
         });
@@ -654,7 +659,7 @@ function simulateMission(missionId: string): SimRunner {
           kind: "replanner",
           agent: "Replanner",
           text: "Storm class III over Homerton — switching to northern corridor via Hackney Marshes.",
-          mission_id: mission.id,
+          mission_id: updated.id,
         });
         bus.emit({ type: "mission_update", mission: { ...updated } });
       }
