@@ -85,19 +85,22 @@ def _deterministic_summary(metrics: dict) -> str:
 
 
 def _llm_summary(metrics: dict, mission_summary: dict | None) -> str | None:
-    """Optional GPT summary mirroring DroneFleet's /api/generate-report.
+    """Optional LLM summary — provider chosen by ``LLM_PROVIDER`` (langchain).
 
-    Returns ``None`` when OpenAI isn't configured so callers can degrade.
+    Returns ``None`` when no provider is configured so callers can degrade
+    to the deterministic summary.
     """
     try:
-        from openai import OpenAI  # noqa: PLC0415
+        import json  # noqa: PLC0415
 
-        from dronan.config import get_settings  # noqa: PLC0415
+        from langchain_core.messages import HumanMessage, SystemMessage  # noqa: PLC0415
 
-        settings = get_settings()
-        if not settings.openai_api_key:
+        from dronan.llm import LLMRole, get_chat_model, is_configured  # noqa: PLC0415
+
+        if not is_configured(LLMRole.REFLECTION):
             return None
-        client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+        llm = get_chat_model(LLMRole.REFLECTION, temperature=0.2)
+
         system = (
             "You are a Dronan post-flight analyst for hospital administrators. "
             "Given performance metrics and mission data, write a concise 3-5 sentence "
@@ -105,15 +108,10 @@ def _llm_summary(metrics: dict, mission_summary: dict | None) -> str | None:
             "efficiency, any incidents encountered, and recommendation for future "
             "operations. Be direct and data-driven."
         )
-        import json  # noqa: PLC0415
-
         user = json.dumps({"metrics": metrics, "mission_summary": mission_summary or {}})
-        resp = client.chat.completions.create(
-            model=settings.llm_reflection_model,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            temperature=0.2,
-        )
-        return (resp.choices[0].message.content or "").strip() or None
+        resp = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
+        content = getattr(resp, "content", "")
+        return (content or "").strip() or None
     except Exception as exc:  # network, auth, missing dep
         log.warning("LLM summary unavailable; using deterministic summary: %s", exc)
         return None

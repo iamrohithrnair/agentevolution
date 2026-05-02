@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     voyage_model: str = Field(default="voyage-3-large", alias="VOYAGE_MODEL")
     voyage_dim: int = Field(default=1024, alias="VOYAGE_DIM")
 
-    # OpenAI
+    # LLM (provider-agnostic via langchain.chat_models.init_chat_model)
+    # LLM_PROVIDER: openai | anthropic | google_genai | groq | ollama | azure_openai | ...
+    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
     llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
