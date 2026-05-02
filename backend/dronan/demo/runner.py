@@ -388,7 +388,7 @@ async def run_takes(
 # --------------------------------------------------------------------------- #
 
 
-async def _main_async(n: int) -> None:  # pragma: no cover — invoked manually
+async def _main_async(n: int, *, keep_memory: bool = False) -> None:  # pragma: no cover — invoked manually
     try:
         from motor.motor_asyncio import AsyncIOMotorClient  # noqa: PLC0415
     except ImportError as e:
@@ -400,7 +400,8 @@ async def _main_async(n: int) -> None:  # pragma: no cover — invoked manually
     client = AsyncIOMotorClient(settings.mongodb_uri)
     db = client[settings.mongodb_db]
     try:
-        await db.mission_memory.delete_many({"metadata.tag": CANONICAL_SCENARIO.tag})
+        if not keep_memory:
+            await db.mission_memory.delete_many({"metadata.tag": CANONICAL_SCENARIO.tag})
         results = await run_takes(db, n=n)
         for r in results:
             print(
@@ -416,8 +417,14 @@ def main() -> None:  # pragma: no cover — manual invocation only
 
     parser = argparse.ArgumentParser(description="Run the canonical Dronan scenario N times.")
     parser.add_argument("-n", "--takes", type=int, default=3)
+    parser.add_argument(
+        "--keep-memory",
+        action="store_true",
+        help="Skip the pre-run mission_memory reset (so a previous take's lessons "
+        "carry over). Mirrors the KEEP_MEMORY=1 env in scripts/run_takes.sh.",
+    )
     args = parser.parse_args()
-    asyncio.run(_main_async(args.takes))
+    asyncio.run(_main_async(args.takes, keep_memory=args.keep_memory))
 
 
 if __name__ == "__main__":
