@@ -40,16 +40,19 @@ _SUPPLY = {
 
 def _extract_locations(text: str) -> list[str]:
     """Return canonical facility names found in ``text``, preserving order."""
-    seen: list[str] = []
+    found: list[tuple[int, str]] = []
+    seen_names: set[str] = set()
     lower = text.lower()
     # Greedy multi-word match first.
     for key in sorted(_FACILITIES, key=lambda k: -len(k)):
         for m in re.finditer(rf"\b{re.escape(key)}\b", lower):
             canonical = _FACILITIES[key]
-            if canonical not in seen:
-                seen.append((m.start(), canonical))
-    seen.sort()
-    return [c for _, c in seen]
+            if canonical in seen_names:
+                continue
+            seen_names.add(canonical)
+            found.append((m.start(), canonical))
+    found.sort()
+    return [c for _, c in found]
 
 
 def _extract_supplies(text: str) -> dict[str, str]:

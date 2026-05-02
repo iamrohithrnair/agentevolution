@@ -26,7 +26,7 @@ async def payload_node(state: dict, *, db: Any) -> dict:
     cold = None
     if manifest.get("cold_chain_required"):
         plan = state.get("plan") or {}
-        eta_s = (plan.get("eta_s") or 600)
+        eta_s = plan.get("eta_seconds") or plan.get("eta_s") or 600
         cold = await cold_chain_predict(
             initial_temp_c=4.0,
             ambient_temp_c=22.0,
