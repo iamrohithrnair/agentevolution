@@ -74,13 +74,13 @@ export function FlightLog({ missionId, height = 320 }: Props) {
           <ol className="divide-y divide-dashed divide-[var(--color-border)] px-5 py-1" data-testid="flight-log">
             <AnimatePresence initial={false}>
               {logs.length === 0 ? (
-                <li className="py-4 text-sm text-[var(--color-fg-muted)]">
+                <li key="flight-log-empty" className="py-4 text-sm text-[var(--color-fg-muted)]">
                   No flight events yet. Dispatch a mission to see takeoff → reroute → handover.
                 </li>
               ) : (
-                logs.map((log) => (
+                logs.map((log, i) => (
                   <motion.li
-                    key={log.id}
+                    key={log.id ?? `${log.ts ?? ""}-${log.event ?? ""}-${i}`}
                     layout
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
