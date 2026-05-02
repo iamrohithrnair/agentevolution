@@ -59,13 +59,15 @@ async def _go():
         sys.exit(2)
     client = AsyncIOMotorClient(s.mongodb_uri, serverSelectionTimeoutMS=5000)
     db = client[s.mongodb_db]
+    # MissionStatus is Literal['planned', 'executing', 'completed', 'failed', 'aborted']
+    # in backend/dronan/models.py; the live/active subset is 'planned' + 'executing'.
     doc = await db.missions.find_one(
-        {'status': {'\$in': ['in_transit', 'assigned', 'dispatched', 'planning']}},
+        {'status': {'\$in': ['planned', 'executing']}},
         sort=[('created_at', -1)],
     )
     client.close()
     if not doc:
-        print('no active mission found in any of in_transit/assigned/dispatched/planning', file=sys.stderr)
+        print('no active mission found (status in planned/executing)', file=sys.stderr)
         sys.exit(2)
     print(doc['_id'])
 
@@ -94,6 +96,8 @@ sleep "${T_KILL}"
 # Capture pre-kill tool-call high water mark
 # --------------------------------------------------------------------------- #
 
+# tool_call_log uses ``started_at`` (BSON datetime) per backend/dronan/models.py.
+# We stringify it for log-line readability only.
 LAST_TS_BEFORE="$(uv run python -c "
 import asyncio
 from dronan.config import get_settings
@@ -104,15 +108,15 @@ async def _go():
     client = AsyncIOMotorClient(s.mongodb_uri, serverSelectionTimeoutMS=5000)
     db = client[s.mongodb_db]
     doc = await db.tool_call_log.find_one(
-        {'mission_id': '${MISSION_ID}'}, sort=[('ts', -1)],
+        {'mission_id': '${MISSION_ID}'}, sort=[('started_at', -1)],
     )
     client.close()
-    print(doc['ts'] if doc else 0.0)
+    print(doc['started_at'].isoformat() if doc else 'none')
 
 asyncio.run(_go())
 ")"
 
-echo "rehearse_recovery: last tool_call_log.ts before kill = ${LAST_TS_BEFORE}"
+echo "rehearse_recovery: last tool_call_log.started_at before kill = ${LAST_TS_BEFORE}"
 
 # --------------------------------------------------------------------------- #
 # kill -9 the worker(s) matching the pattern
@@ -162,12 +166,18 @@ echo "rehearse_recovery: restarting worker → ${WORKER_LOG}"
 
 echo "rehearse_recovery: polling tool_call_log for new rows (max ${MAX_WAIT_S}s)…"
 
+# Convert KILL_AT (float epoch) to a tz-aware datetime so it compares correctly
+# against ``started_at`` (BSON datetime). MongoDB does not coerce across BSON
+# types when ranking ``$gt`` — a Date vs Number comparison would match every
+# document.
 NEW_TS="$(uv run python -c "
 import asyncio, time
+from datetime import datetime, timezone
 from dronan.config import get_settings
 from motor.motor_asyncio import AsyncIOMotorClient
 
 KILL_AT = float('${KILL_AT}')
+KILL_AT_DT = datetime.fromtimestamp(KILL_AT, tz=timezone.utc)
 MAX_WAIT = float('${MAX_WAIT_S}')
 
 async def _go():
@@ -177,12 +187,12 @@ async def _go():
     deadline = time.time() + MAX_WAIT
     while time.time() < deadline:
         doc = await db.tool_call_log.find_one(
-            {'mission_id': '${MISSION_ID}', 'ts': {'\$gt': KILL_AT}},
-            sort=[('ts', 1)],
+            {'mission_id': '${MISSION_ID}', 'started_at': {'\$gt': KILL_AT_DT}},
+            sort=[('started_at', 1)],
         )
         if doc:
             client.close()
-            print(doc['ts'])
+            print(doc['started_at'].timestamp())
             return
         await asyncio.sleep(0.25)
     client.close()

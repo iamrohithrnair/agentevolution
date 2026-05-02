@@ -39,4 +39,8 @@ asyncio.run(_go())
 fi
 
 echo "run_takes: running ${N} takes…"
-uv run python -m dronan.demo.runner -n "${N}"
+# Always pass --keep-memory through so the runner doesn't undo whatever
+# decision the shell script made above (the runner used to unconditionally
+# wipe mission_memory.metadata.tag, which silently neutralised KEEP_MEMORY=1).
+RUNNER_ARGS=(-n "${N}" --keep-memory)
+uv run python -m dronan.demo.runner "${RUNNER_ARGS[@]}"
