@@ -467,15 +467,27 @@ async def agent_entrypoint(job: Any) -> None:
         current_mission_id=pinned_mission,
     )
 
-    session = AgentSession(  # type: ignore[union-attr, call-arg]
-        vad=make_vad(),
-        stt=make_stt(language),
-        llm=SupervisorLLM(ctx),  # type: ignore[name-defined]
-        tts=make_tts(language),
-        allow_interruptions=True,
-        interrupt_speech_duration=0.25,
-        interrupt_min_words=1,
-    )
+    # AgentSession's constructor signature changes between livekit-agents
+    # releases. Build a kwargs dict and only pass interrupt tuning knobs
+    # when the installed version accepts them.
+    import inspect as _inspect  # noqa: PLC0415
+
+    session_kwargs: dict = {
+        "vad": make_vad(),
+        "stt": make_stt(language),
+        "llm": SupervisorLLM(ctx),  # type: ignore[name-defined]
+        "tts": make_tts(language),
+        "allow_interruptions": True,
+    }
+    try:
+        sig = _inspect.signature(AgentSession)  # type: ignore[union-attr, arg-type]
+        if "interrupt_speech_duration" in sig.parameters:
+            session_kwargs["interrupt_speech_duration"] = 0.25
+        if "interrupt_min_words" in sig.parameters:
+            session_kwargs["interrupt_min_words"] = 1
+    except (TypeError, ValueError):
+        pass  # SDK without introspectable signature — rely on defaults
+    session = AgentSession(**session_kwargs)  # type: ignore[union-attr, call-arg]
     ctx.session = session
 
     # Resolve operator's current_mission if not pinned
