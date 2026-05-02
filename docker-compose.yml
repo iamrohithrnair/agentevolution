@@ -1,0 +1,49 @@
+# Local dev alternative to Atlas (replica set required for change streams + MongoDBSaver).
+# Prefer Atlas; this is a fallback.
+services:
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: >
+        mongosh --quiet --eval "try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    profiles: ["full"]
+    build: .
+    command: ["uv", "run", "uvicorn", "dronan.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/?replicaSet=rs0
+      - MONGODB_DB=dronan
+    ports: ["8000:8000"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  livekit-worker:
+    profiles: ["full"]
+    build: .
+    command: ["uv", "run", "python", "-m", "dronan.voice.livekit_worker", "dev"]
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/?replicaSet=rs0
+      - MONGODB_DB=dronan
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  web:
+    profiles: ["full"]
+    build: ./frontend
+    working_dir: /app
+    command: ["pnpm", "dev"]
+    ports: ["3000:3000"]
+
+volumes:
+  mongo-data:
