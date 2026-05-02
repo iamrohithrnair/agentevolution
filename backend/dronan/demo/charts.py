@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from xml.sax.saxutils import escape as _xml_escape, quoteattr as _xml_quoteattr
 
 # --------------------------------------------------------------------------- #
 
@@ -53,6 +54,20 @@ def _scale(value: float, low: float, high: float, out_low: float, out_high: floa
 
 def _fmt(v: float) -> str:
     return f"{v:.1f}"
+
+
+def _attr(s: str) -> str:
+    """Quote ``s`` for safe interpolation as an XML attribute value.
+
+    ``xml.sax.saxutils.quoteattr`` returns the value *with* its surrounding
+    quotes (so the f-string mustn't add its own).
+    """
+    return _xml_quoteattr(s)
+
+
+def _text(s: str) -> str:
+    """Escape ``s`` for safe interpolation as XML element text content."""
+    return _xml_escape(s)
 
 
 def render_actual_time_svg(
@@ -149,9 +164,17 @@ def render_actual_time_svg(
             f"SM-1 target (90% × Take-1) — {verdict} ({ratio * 100:.1f}%)</text>"
         )
 
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CHART_WIDTH} {CHART_HEIGHT}" width="{CHART_WIDTH}" height="{CHART_HEIGHT}" role="img" aria-label="{title}">
+    # ``title`` and ``scenario_id`` are caller-supplied and the renderer is
+    # exposed via the FastAPI ``/analytics/svg/<scenario_id>`` route, so we
+    # have to assume both are attacker-influenced. Escape them as XML text
+    # for element content and quote-attr them for any attribute use to
+    # prevent SVG/XSS injection.
+    title_attr = _attr(title)
+    title_text = _text(title)
+    scenario_text = _text(scenario_id)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CHART_WIDTH} {CHART_HEIGHT}" width="{CHART_WIDTH}" height="{CHART_HEIGHT}" role="img" aria-label={title_attr}>
   <rect x="0" y="0" width="{CHART_WIDTH}" height="{CHART_HEIGHT}" fill="white" />
-  <text x="{CHART_WIDTH / 2}" y="22" text-anchor="middle" font-family="ui-sans-serif, system-ui" font-size="14" font-weight="600" fill="{TEXT_COLOUR}">{title} · {scenario_id}</text>
+  <text x="{CHART_WIDTH / 2}" y="22" text-anchor="middle" font-family="ui-sans-serif, system-ui" font-size="14" font-weight="600" fill="{TEXT_COLOUR}">{title_text} · {scenario_text}</text>
 
   <g stroke="{GRID_COLOUR}" stroke-width="1">
     <line x1="{plot_left}" y1="{plot_top}" x2="{plot_right}" y2="{plot_top}" />
@@ -176,7 +199,8 @@ def render_actual_time_svg(
 
 
 def _empty_svg(title: str) -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CHART_WIDTH} {CHART_HEIGHT}" width="{CHART_WIDTH}" height="{CHART_HEIGHT}" role="img" aria-label="{title}">
+    title_attr = _attr(title)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CHART_WIDTH} {CHART_HEIGHT}" width="{CHART_WIDTH}" height="{CHART_HEIGHT}" role="img" aria-label={title_attr}>
   <rect x="0" y="0" width="{CHART_WIDTH}" height="{CHART_HEIGHT}" fill="white" />
   <text x="{CHART_WIDTH / 2}" y="{CHART_HEIGHT / 2}" text-anchor="middle" font-family="ui-sans-serif, system-ui" font-size="14" fill="{AXIS_COLOUR}">No takes recorded yet.</text>
 </svg>"""

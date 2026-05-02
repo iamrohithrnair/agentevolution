@@ -192,7 +192,11 @@ class SimulatedSupervisor:
         # 2. Plan: time shrinks with retrieved lessons
         per_lesson = self.scenario.seconds_saved_per_lesson
         baseline = self.scenario.baseline_actual_time_s
-        floor = baseline - (self.scenario.min_lessons_per_take * 2 * per_lesson)
+        # Floor matches the class docstring: at most ``min_lessons_per_take``
+        # lessons' worth of speedup. The earlier ``* 2`` made the floor
+        # negative (240 - 6*2*24 = -48), letting actual_time_s drift below
+        # zero on aggressive lesson counts.
+        floor = baseline - (self.scenario.min_lessons_per_take * per_lesson)
         actual_time_s = max(floor, baseline - lessons_used * per_lesson)
         # Tiny jitter so each take's number isn't identical when lessons_used==0
         actual_time_s += self._rng.uniform(-1.5, 1.5)
