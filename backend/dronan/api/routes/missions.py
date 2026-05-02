@@ -197,6 +197,14 @@ async def create_mission(payload: MissionCreate, db: Any = Depends(get_db)) -> d
     }
     await db.missions.insert_one(doc)
 
+    # Fire-and-forget the mission simulator so the drone actually moves,
+    # flight_logs stream out, and the mission closes out as 'completed'.
+    import asyncio as _asyncio  # noqa: PLC0415
+
+    from ...sim.mission_sim import simulate_mission  # noqa: PLC0415
+
+    _asyncio.create_task(simulate_mission(db, mission_id))
+
     # Frontend expects {mission_id, delivery_ids, drone_id, eta_seconds};
     # legacy callers got the full mission doc so we keep both fields.
     eta_s = (plan or {}).get("eta_s") if isinstance(plan, dict) else None
