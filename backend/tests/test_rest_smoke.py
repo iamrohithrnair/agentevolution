@@ -77,7 +77,9 @@ async def test_drone_404(client) -> None:
 async def test_facility_get(client) -> None:
     r = await client.get("/facilities/Royal%20London")
     assert r.status_code == 200
-    assert r.json()["_id"] == "Royal London"
+    body = r.json()
+    # Seeded facilities use ObjectId-style _id with the human label in `name`.
+    assert body.get("name") == "Royal London" or body.get("_id") == "Royal London"
 
 
 async def test_weather_endpoint(client) -> None:
@@ -116,9 +118,7 @@ async def test_mission_create_and_get(client) -> None:
 
 
 async def test_delivery_create(client, mongo_db) -> None:
-    # Confirm the seed inserted Royal London (no spaces in `_id` only — UTF-8
-    # in JSON bodies is fine).
-    fac = await mongo_db.facilities.find_one({"_id": "Royal London"})
+    fac = await mongo_db.facilities.find_one({"name": "Royal London"})
     assert fac is not None
     r = await client.post(
         "/deliveries",

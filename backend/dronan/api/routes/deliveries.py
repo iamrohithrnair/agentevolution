@@ -33,7 +33,9 @@ async def list_deliveries(db: Any = Depends(get_db), limit: int = 50) -> list[di
 
 @router.post("", status_code=201)
 async def create_delivery(payload: DeliveryCreate, db: Any = Depends(get_db)) -> dict:
-    fac = await db.facilities.find_one({"_id": payload.destination_id})
+    fac = await db.facilities.find_one(
+        {"$or": [{"_id": payload.destination_id}, {"name": payload.destination_id}]}
+    )
     if fac is None:
         raise HTTPException(status_code=404, detail=f"facility {payload.destination_id} not found")
     now = datetime.now(timezone.utc)

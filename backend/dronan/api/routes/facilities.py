@@ -19,7 +19,11 @@ async def list_facilities(db: Any = Depends(get_db)) -> list[dict]:
 
 @router.get("/{facility_id}")
 async def get_facility(facility_id: str, db: Any = Depends(get_db)) -> dict:
-    doc = await db.facilities.find_one({"_id": facility_id})
+    # Match by either ``_id`` or ``name`` — seeded facilities use ObjectId-style
+    # ``_id`` and carry the human label in ``name``.
+    doc = await db.facilities.find_one(
+        {"$or": [{"_id": facility_id}, {"name": facility_id}]}
+    )
     if doc is None:
         raise HTTPException(status_code=404, detail=f"facility {facility_id} not found")
     return serialise(doc)
