@@ -157,10 +157,12 @@ class NarratorStream:
 
         now = self.clock()
 
-        # Debounce: drop if the same kind fired within the window
+        # Debounce: drop if the same kind fired within the window. The timestamp
+        # is *not* updated here — we only consume the debounce slot once a
+        # narration actually reaches the speaker, so suppressed (barge-in) or
+        # unrenderable events don't starve a follow-up same-kind event.
         if (now - self.state.last_kind_at.get(kind, 0.0)) * 1000 < self.debounce_ms:
             return False
-        self.state.last_kind_at[kind] = now
 
         # Render through the templates module
         utterance = render_narration(kind, doc.get("payload", {}) or {})
@@ -178,6 +180,8 @@ class NarratorStream:
         except Exception:  # noqa: BLE001 — we never want a flaky TTS to kill the stream
             log.exception("narrator: speaker raised on event=%s", kind)
             return False
+        # Only mark the debounce slot consumed after the speaker accepted the line.
+        self.state.last_kind_at[kind] = now
         return True
 
     # ------------------------------------------------------------------ #
@@ -216,6 +220,12 @@ class NarratorStream:
                     e,
                     backoff,
                 )
+                # Drop the resume token so a stale token (e.g. oplog window
+                # exhaustion on Atlas) doesn't lock us into permanent retry.
+                # Restarting from "now" loses replay capability for the gap,
+                # but the AnalystAgent re-derives terminal state at end of
+                # mission from flight_logs anyway.
+                resume_token = None
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30.0)
 

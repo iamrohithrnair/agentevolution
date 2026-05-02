@@ -232,6 +232,43 @@ async def test_narrator_suppresses_narration_during_barge_in(mongomock_db):
 
 
 @pytest.mark.asyncio
+async def test_narrator_barge_in_does_not_consume_debounce_window(mongomock_db):
+    """Regression: a barge-in-suppressed event must not lock out the next
+    same-kind event from being narrated within the debounce window. SM-6.
+
+    Sequence:
+      1. Operator starts speaking → barge-in.
+      2. ``takeoff`` fires 100 ms later → suppressed (returns False).
+      3. Operator stops; ``takeoff`` fires again 200 ms after that.
+      4. The second ``takeoff`` MUST be spoken — the suppressed first call
+         should not have consumed the debounce slot.
+    """
+    from dronan.voice.narrator_stream import NarratorStream
+
+    clock = _Clock()
+    calls, speaker = _make_speaker()
+    n = NarratorStream(
+        db=mongomock_db,
+        mission_id="m1",
+        speaker=speaker,
+        debounce_ms=600,
+        suppress_near_barge_in_ms=250,
+        clock=clock,
+    )
+
+    n.note_user_started_speaking()
+    clock.advance(0.100)
+    doc = {"event": "takeoff", "mission_id": "m1", "payload": {"drone": "Drone 1"}}
+    assert await n.handle_event(doc) is False  # suppressed
+    assert calls == []
+
+    n.note_user_stopped_speaking()
+    clock.advance(0.200)  # 300 ms total — well inside the 600 ms debounce
+    assert await n.handle_event(doc) is True  # must speak, not be debounced
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_narrator_unknown_event_silently_dropped(mongomock_db):
     from dronan.voice.narrator_stream import NarratorStream
 
