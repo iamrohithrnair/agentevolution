@@ -11,9 +11,26 @@ from dronan.config import get_settings
 pytestmark = pytest.mark.unit
 
 
-def test_default_provider_is_openai() -> None:
-    s = get_settings()
+def test_code_default_provider_is_openai(monkeypatch, tmp_path) -> None:
+    """When nothing is set, the code-level default provider is ``openai``."""
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    # Point pydantic-settings at an empty env file so the repo-root .env
+    # (which ships with LLM_PROVIDER=google_genai) doesn't influence this test.
+    empty_env = tmp_path / "empty.env"
+    empty_env.write_text("")
+    from dronan.config import Settings
+
+    s = Settings(_env_file=str(empty_env))  # type: ignore[call-arg]
     assert s.llm_provider.lower() == "openai"
+
+
+def test_active_provider_reads_env(monkeypatch) -> None:
+    """Whatever ``LLM_PROVIDER`` is set to should flow through to settings."""
+    from dronan import config as config_mod
+
+    monkeypatch.setenv("LLM_PROVIDER", "google_genai")
+    config_mod._settings = None
+    assert get_settings().llm_provider.lower() == "google_genai"
 
 
 def test_is_configured_maps_provider_to_key(monkeypatch) -> None:
