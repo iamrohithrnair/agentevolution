@@ -56,6 +56,17 @@ class Settings(BaseSettings):
     elevenlabs_model_id: str = Field(default="eleven_turbo_v2_5", alias="ELEVENLABS_MODEL_ID")
     deepgram_api_key: str = Field(default="", alias="DEEPGRAM_API_KEY")
     deepgram_model: str = Field(default="nova-3", alias="DEEPGRAM_MODEL")
+    elevenlabs_voice_id_multilingual: str = Field(
+        default="", alias="ELEVENLABS_VOICE_ID_MULTILINGUAL"
+    )
+
+    # Voice loop tuning (prompts/06 §5)
+    narration_debounce_ms: int = Field(default=600, alias="NARRATION_DEBOUNCE_MS")
+    narration_suppress_near_barge_in_ms: int = Field(
+        default=250, alias="NARRATION_SUPPRESS_NEAR_BARGE_IN_MS"
+    )
+    voice_loop_p50_budget_ms: int = Field(default=600, alias="VOICE_LOOP_P50_BUDGET_MS")
+    voice_loop_p95_budget_ms: int = Field(default=900, alias="VOICE_LOOP_P95_BUDGET_MS")
 
     # Optional
     openweather_api_key: str = Field(default="", alias="OPENWEATHER_API_KEY")
@@ -67,9 +78,7 @@ class Settings(BaseSettings):
     app_env: Literal["demo", "dev", "prod"] = Field(default="demo", alias="APP_ENV")
     api_port: int = Field(default=8000, alias="API_PORT")
     web_port: int = Field(default=3000, alias="WEB_PORT")
-    next_public_api_base: str = Field(
-        default="http://localhost:8000", alias="NEXT_PUBLIC_API_BASE"
-    )
+    next_public_api_base: str = Field(default="http://localhost:8000", alias="NEXT_PUBLIC_API_BASE")
     next_public_ws_base: str = Field(default="ws://localhost:8000", alias="NEXT_PUBLIC_WS_BASE")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
@@ -80,6 +89,14 @@ class Settings(BaseSettings):
     @property
     def repo_root(self) -> Path:
         return _REPO_ROOT
+
+    def voice_keys_present(self) -> bool:
+        """True iff all three real-voice creds are populated.
+
+        Used by the worker + the demo orchestrator to decide whether to wire
+        LiveKit/Deepgram/ElevenLabs or fall back to the ``--text-mode`` REPL.
+        """
+        return bool(self.livekit_url and self.deepgram_api_key and self.elevenlabs_api_key)
 
 
 _settings: Settings | None = None

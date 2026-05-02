@@ -15,6 +15,11 @@ from collections.abc import AsyncGenerator
 import pytest
 import pytest_asyncio
 
+# Stable test env — but do *not* force MONGODB_URI: ``backend/tests/test_smoke.py``
+# uses its presence as a gate on the live Atlas ping.
+os.environ.setdefault("MONGODB_DB", "dronan_test")
+os.environ.setdefault("LOG_LEVEL", "WARNING")
+
 
 def real_atlas_required() -> bool:
     """True only when ``DRONAN_REAL_ATLAS=1`` is set and a URI is reachable."""
@@ -28,7 +33,8 @@ def real_atlas_required() -> bool:
 @pytest_asyncio.fixture
 async def mongo_client() -> AsyncGenerator:
     """Yield a mongomock-motor client (closes on teardown)."""
-    from mongomock_motor import AsyncMongoMockClient
+    pytest.importorskip("mongomock_motor")
+    from mongomock_motor import AsyncMongoMockClient  # noqa: PLC0415
 
     client = AsyncMongoMockClient()
     try:
@@ -43,6 +49,22 @@ async def mongo_db(mongo_client) -> AsyncGenerator:
     name = f"dronan_test_{uuid.uuid4().hex[:8]}"
     yield mongo_client[name]
     await mongo_client.drop_database(name)
+
+
+@pytest.fixture
+def mongomock_db():
+    """In-memory motor-compatible mongo for unit tests (sync fixture).
+
+    Older alias for the async ``mongo_db`` fixture above. Kept so the
+    P6 voice tests (``test_livekit_smoke.py``) don't have to be rewritten
+    around an async fixture they don't otherwise need. Returns a
+    fresh ``AsyncMongoMockClient`` database.
+    """
+    pytest.importorskip("mongomock_motor")
+    from mongomock_motor import AsyncMongoMockClient  # noqa: PLC0415
+
+    client = AsyncMongoMockClient()
+    return client["dronan_test"]
 
 
 def pytest_configure(config: pytest.Config) -> None:

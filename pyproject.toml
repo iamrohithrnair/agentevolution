@@ -99,3 +99,9 @@ asyncio_mode = "auto"
 testpaths = ["backend/tests"]
 addopts = "-q --strict-markers"
 pythonpath = ["backend"]
+markers = [
+  "slow: long-running tests (skipped by default in fast iterations)",
+  "integration: requires real MongoDB / network",
+  "live_llm: requires real OpenAI/Voyage keys",
+  "live_voice: requires real LiveKit/Deepgram/ElevenLabs keys",
+]
