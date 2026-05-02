@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Polygon, Marker, Tooltip as LeafletTooltip, Popup, useMap } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Polygon,
+  Polyline,
+  CircleMarker,
+  Marker,
+  Tooltip as LeafletTooltip,
+  Popup,
+  useMap,
+} from "react-leaflet";
 import L, { type LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { listFacilities, listNoFlyZones, listDrones } from "@/lib/api";
+import { listFacilities, listNoFlyZones, listDrones, listMissions } from "@/lib/api";
 import { openDashboardSocket, openMissionSocket } from "@/lib/ws";
-import type { Drone, Facility, NoFlyZone, TelemetryFrame } from "@/lib/types";
+import type { Drone, Facility, Mission, NoFlyZone, TelemetryFrame } from "@/lib/types";
 import { formatBattery, formatTemp } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 
@@ -37,8 +47,10 @@ const facilityIcon = (label: string) =>
     `,
   });
 
-const droneIcon = (heading: number, status: Drone["status"]) =>
-  L.divIcon({
+const droneIcon = (heading: number, status: Drone["status"]) => {
+  const airborne = status === "in_transit" || status === "flying" || status === "executing";
+  const bg = airborne ? "var(--color-success)" : "var(--color-accent)";
+  return L.divIcon({
     className: "dronan-drone-icon",
     iconSize: [36, 36],
     iconAnchor: [18, 18],
@@ -46,12 +58,13 @@ const droneIcon = (heading: number, status: Drone["status"]) =>
       <span style="
         display:grid;place-items:center;width:36px;height:36px;
         border-radius:9999px;
-        background:${status === "in_transit" ? "var(--color-success)" : "var(--color-accent)"};
+        background:${bg};
         color:#fff;font-size:14px;box-shadow:var(--shadow-2);
         transform:rotate(${heading}deg);transition:transform 600ms var(--ease-out-soft);
       ">✈</span>
     `,
   });
+};
 
 function Recenter({ to }: { to: [number, number] | null }) {
   const map = useMap();
@@ -84,24 +97,58 @@ export default function MapView({
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [zones, setZones] = useState<NoFlyZone[]>([]);
   const [drones, setDrones] = useState<Record<string, Drone>>({});
+  const [missions, setMissions] = useState<Record<string, Mission>>({});
+  const [trails, setTrails] = useState<Record<string, Array<[number, number]>>>({});
   const [follow, setFollow] = useState<[number, number] | null>(null);
+
+  const MOVING_STATUSES = new Set(["in_transit", "flying", "executing"]);
 
   // Initial fetch
   useEffect(() => {
     let cancelled = false;
-    Promise.all([listFacilities(), listNoFlyZones(), listDrones()]).then(([f, n, d]) => {
-      if (cancelled) return;
-      setFacilities(f);
-      setZones(n);
-      setDrones(Object.fromEntries(d.map((x) => [x.id, x])));
-    });
+    Promise.all([listFacilities(), listNoFlyZones(), listDrones(), listMissions()]).then(
+      ([f, n, d, m]) => {
+        if (cancelled) return;
+        setFacilities(f);
+        setZones(n);
+        setDrones(Object.fromEntries(d.map((x) => [x.id, x])));
+        setMissions(Object.fromEntries(m.map((x) => [x.id, x])));
+      },
+    );
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Live drone updates
+  // Live drone + mission updates
   useEffect(() => {
+    const appendTrail = (id: string, pos: [number, number]) =>
+      setTrails((t) => {
+        const prev = t[id] ?? [];
+        const last = prev[prev.length - 1];
+        // Skip duplicate identical points to keep the trail clean.
+        if (last && last[0] === pos[0] && last[1] === pos[1]) return t;
+        const next = [...prev, pos].slice(-120);
+        return { ...t, [id]: next };
+      });
+
+    const handleDrone = (d: Drone) => {
+      setDrones((s) => ({ ...s, [d.id]: d }));
+      if (d.position && MOVING_STATUSES.has(d.status)) {
+        appendTrail(d.id, d.position);
+      } else if (d.status === "idle") {
+        setTrails((t) => {
+          if (!t[d.id]) return t;
+          const copy = { ...t };
+          delete copy[d.id];
+          return copy;
+        });
+      }
+    };
+
+    const handleMission = (m: Mission) =>
+      setMissions((s) => ({ ...s, [m.id]: { ...s[m.id], ...m } }));
+
     if (missionId) {
       const sock = openMissionSocket(missionId);
       const offT = sock.on("telemetry", (frame: TelemetryFrame) => {
@@ -121,23 +168,27 @@ export default function MapView({
             },
           };
         });
+        appendTrail(frame.drone_id, frame.position);
         if (followDrone === frame.drone_id) {
           setFollow([frame.position[1], frame.position[0]]);
         }
       });
-      const offD = sock.on("drone_update", (d: Drone) =>
-        setDrones((s) => ({ ...s, [d.id]: d })),
-      );
+      const offD = sock.on("drone_update", handleDrone);
+      const offM = sock.on("mission_update", handleMission);
       return () => {
         offT();
         offD();
+        offM();
         sock.close();
       };
     }
+
     const sock = openDashboardSocket();
-    const offD = sock.on("drone_update", (d: Drone) => setDrones((s) => ({ ...s, [d.id]: d })));
+    const offD = sock.on("drone_update", handleDrone);
+    const offM = sock.on("mission_update", handleMission);
     return () => {
       offD();
+      offM();
       sock.close();
     };
   }, [missionId, followDrone]);
@@ -205,6 +256,72 @@ export default function MapView({
               </Popup>
             </Marker>
           ))}
+
+        {/* Active missions — planned path (dashed) + route waypoints */}
+        {Object.values(missions)
+          .filter(
+            (m) => m.status !== "completed" && m.status !== "aborted" && (m.route?.length ?? 0) >= 2,
+          )
+          .map((m) => {
+            const coords = m.route
+              .map((w) => w.position)
+              .filter((p) => Array.isArray(p) && p.length === 2 && (p[0] !== 0 || p[1] !== 0))
+              .map(([lon, lat]) => [lat, lon] as [number, number]);
+            if (coords.length < 2) return null;
+            return (
+              <span key={`mr-${m.id}`}>
+                <Polyline
+                  positions={coords}
+                  pathOptions={{
+                    color: "var(--color-accent)",
+                    weight: 3,
+                    opacity: 0.7,
+                    dashArray: "6 8",
+                  }}
+                >
+                  <LeafletTooltip sticky>
+                    <strong>{m.id}</strong> · planned · {m.route.length} waypoints
+                    {m.reroutes && m.reroutes.length > 0
+                      ? ` · ${m.reroutes.length} reroute${m.reroutes.length === 1 ? "" : "s"}`
+                      : ""}
+                  </LeafletTooltip>
+                </Polyline>
+                {m.route.map((w, i) => (
+                  <CircleMarker
+                    key={`wp-${m.id}-${i}`}
+                    center={[w.position[1], w.position[0]]}
+                    radius={4}
+                    pathOptions={{
+                      color: "var(--color-accent)",
+                      fillColor: "var(--color-bg)",
+                      fillOpacity: 1,
+                      weight: 2,
+                    }}
+                  >
+                    <LeafletTooltip>
+                      {w.label || `waypoint ${i + 1}`}
+                    </LeafletTooltip>
+                  </CircleMarker>
+                ))}
+              </span>
+            );
+          })}
+
+        {/* Drone trails — actual path flown so far */}
+        {Object.entries(trails).map(([id, points]) => {
+          if (points.length < 2) return null;
+          return (
+            <Polyline
+              key={`trail-${id}`}
+              positions={points.map(([lon, lat]) => [lat, lon] as [number, number])}
+              pathOptions={{
+                color: "var(--color-success)",
+                weight: 4,
+                opacity: 0.85,
+              }}
+            />
+          );
+        })}
 
         {droneList.map((d) => (
           <Marker

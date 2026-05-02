@@ -12,11 +12,14 @@ const STATUS_VARIANT: Record<MissionStatus, "outline" | "info" | "success" | "wa
   draft: "outline",
   queued: "info",
   assigned: "info",
+  planned: "info",
+  executing: "accent",
   in_transit: "accent",
   delivered: "success",
   returning: "warning",
   completed: "success",
   aborted: "danger",
+  failed: "danger",
 };
 
 interface Props {

@@ -234,6 +234,9 @@ async def simulate_mission(
         )
 
         battery = 100.0
+        rerouted = False
+        reroute_at_step = max(3, steps_per_leg // 3)  # ~33% into the first leg
+
         for i in range(len(points) - 1):
             a_name, a_pos = points[i]
             b_name, b_pos = points[i + 1]
@@ -242,6 +245,76 @@ async def simulate_mission(
                 t = step / steps_per_leg
                 pos = _lerp(a_pos, b_pos, t)
                 battery = max(10.0, battery - (90.0 / (steps_per_leg * max(1, len(points) - 1))))
+
+                # Mid-flight reroute on the first leg — inject a dogleg so the
+                # operator sees the planned path redraw with a waypoint shift.
+                if not rerouted and i == 0 and step == reroute_at_step:
+                    # Dogleg: perpendicular offset ~500m off the straight line.
+                    dx = b_pos[0] - a_pos[0]
+                    dy = b_pos[1] - a_pos[1]
+                    # Normal vector rotated 90° (in degrees-on-earth space).
+                    norm = max(1e-6, math.hypot(dx, dy))
+                    nx, ny = -dy / norm, dx / norm
+                    offset = 0.005  # ~500m in London latitude
+                    dogleg = [pos[0] + nx * offset, pos[1] + ny * offset]
+                    new_route = [
+                        {"location": depot_name, "kind": "depot"},
+                        {"location": "reroute_waypoint", "kind": "reroute"},
+                    ]
+                    # Keep remaining stops after the dogleg.
+                    for j, (name, _) in enumerate(points[1:]):
+                        kind = "stop" if j < len(points) - 2 else "return"
+                        new_route.append({"location": name, "kind": kind})
+
+                    await db.missions.update_one(
+                        {"_id": mission_id},
+                        {
+                            "$set": {
+                                "planned_route": new_route,
+                                "updated_at": datetime.now(timezone.utc),
+                            },
+                            "$push": {
+                                "reroutes": {
+                                    "ts": datetime.now(timezone.utc),
+                                    "reason": "weather_cell_detected",
+                                    "waypoint": dogleg,
+                                }
+                            },
+                        },
+                    )
+                    await _flight_log(
+                        db,
+                        mission_id=mission_id,
+                        drone_id=drone_id,
+                        event="rerouted",
+                        reason="weather_cell_detected",
+                        waypoint=dogleg,
+                    )
+                    await _agent_msg(
+                        db,
+                        mission_id=mission_id,
+                        kind="weather",
+                        agent="WeatherAgent",
+                        text="Storm cell detected 800m ahead. Wind 14 m/s, gusting 19 m/s.",
+                    )
+                    await _agent_msg(
+                        db,
+                        mission_id=mission_id,
+                        kind="replanner",
+                        agent="ReplannerAgent",
+                        text="Bending route 500m north to clear the gust corridor.",
+                    )
+                    await _narration(
+                        db,
+                        mission_id=mission_id,
+                        text="Weather cell ahead. Rerouting 500 metres north.",
+                    )
+
+                    # Detour via the dogleg: from current pos to dogleg, then dogleg to b_pos.
+                    b_pos = dogleg  # first leg now ends at dogleg
+                    heading = _bearing(pos, b_pos)
+                    rerouted = True
+
                 await _set_drone(
                     db,
                     drone_id,
@@ -258,6 +331,39 @@ async def simulate_mission(
                     heading_deg=heading,
                 )
                 await asyncio.sleep(step_seconds)
+
+            # After first leg (if we rerouted), insert an extra mini-leg from
+            # the dogleg back to the real destination so the drone finishes the
+            # originally-planned arrival.
+            if rerouted and i == 0 and len(points) > 1:
+                real_b_name, real_b_pos = points[i + 1]
+                if real_b_pos != b_pos:
+                    dogleg_pos = b_pos
+                    leg_heading = _bearing(dogleg_pos, real_b_pos)
+                    mini_steps = max(4, steps_per_leg // 3)
+                    for step in range(1, mini_steps + 1):
+                        tt = step / mini_steps
+                        pos = _lerp(dogleg_pos, real_b_pos, tt)
+                        battery = max(10.0, battery - 1.0)
+                        await _set_drone(
+                            db,
+                            drone_id,
+                            position=pos,
+                            heading=leg_heading,
+                            battery=battery,
+                        )
+                        await _telemetry(
+                            db,
+                            mission_id=mission_id,
+                            drone_id=drone_id,
+                            position=pos,
+                            battery=battery,
+                            heading_deg=leg_heading,
+                        )
+                        await asyncio.sleep(step_seconds)
+                    # Overwrite b_pos locally so the waypoint message below
+                    # reports delivery at the real destination.
+                    b_name, b_pos = real_b_name, real_b_pos
             # Waypoint reached
             if i == len(points) - 2 and b_name == depot_name:
                 await _flight_log(

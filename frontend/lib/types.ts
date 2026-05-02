@@ -36,16 +36,21 @@ export type MissionStatus =
   | "draft"
   | "queued"
   | "assigned"
+  | "planned"
+  | "executing"
   | "in_transit"
   | "delivered"
   | "returning"
   | "completed"
-  | "aborted";
+  | "aborted"
+  | "failed";
 
 export type DroneStatus =
   | "idle"
   | "preflight"
   | "in_transit"
+  | "flying"
+  | "executing"
   | "returning"
   | "charging"
   | "fault";

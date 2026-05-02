@@ -68,7 +68,13 @@ export function ChatPanel({ missionId, compact }: Props) {
           const r = await createMission({
             deliveries: [
               {
-                destination_id: /king/i.test(message) ? "fac_kings" : "fac_royal_london",
+                destination_id: /king/i.test(message)
+                  ? "King's College Hospital"
+                  : /newham/i.test(message)
+                    ? "Newham"
+                    : /whipps/i.test(message)
+                      ? "Whipps Cross"
+                      : "Royal London",
                 supply: /defib/i.test(message)
                   ? "defib"
                   : /insulin/i.test(message)
