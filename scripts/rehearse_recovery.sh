@@ -211,9 +211,9 @@ EOF
   exit 1
 fi
 
-RESUME_S="$(python3 -c "print(float('${NEW_TS}') - float('${KILL_AT}'))")"
+RESUME_S="$(uv run python -c "print(float('${NEW_TS}') - float('${KILL_AT}'))")"
 PASSED="false"
-if python3 -c "import sys; sys.exit(0 if float('${RESUME_S}') <= float('${ASSERT_RESUME_S}') else 1)"; then
+if uv run python -c "import sys; sys.exit(0 if float('${RESUME_S}') <= float('${ASSERT_RESUME_S}') else 1)"; then
   PASSED="true"
 fi
 
