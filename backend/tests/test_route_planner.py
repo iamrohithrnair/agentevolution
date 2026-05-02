@@ -34,6 +34,13 @@ async def test_compute_route_returns_full_tour(seeded_facilities) -> None:
     assert res["waypoints"][-1]["kind"] == "depot_return"
     # Solver name reflects whichever path executed.
     assert res["solver"] in {"or-tools", "haversine-nn"}
+    # Pre-paired legs — consumed by weather/geofence agents.
+    assert "legs" in res and len(res["legs"]) == len(res["waypoints"]) - 1
+    leg = res["legs"][0]
+    for k in ("from", "to", "from_coord", "to_coord"):
+        assert k in leg
+    assert leg["from"] == "Depot"
+    assert isinstance(leg["from_coord"], tuple) and len(leg["from_coord"]) == 2
 
 
 async def test_compute_route_idempotency_skips_solver(seeded_facilities) -> None:
