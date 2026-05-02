@@ -58,10 +58,34 @@ async def list_no_fly_zones(db: Any = Depends(get_db), active: bool = True) -> l
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _to_skill(doc: dict) -> dict:
+    """Shape an ``agent_skills`` doc into the frontend ``Skill`` contract."""
+    tools = doc.get("tools") or []
+    parameters: list[str] = []
+    if isinstance(tools, list):
+        for t in tools:
+            if isinstance(t, str):
+                parameters.append(t)
+            elif isinstance(t, dict):
+                name = t.get("name") or t.get("tool")
+                if name:
+                    parameters.append(str(name))
+    return {
+        "skill_id": str(doc.get("_id") or ""),
+        "name": doc.get("agent") or doc.get("name") or "",
+        "agent": doc.get("agent") or "",
+        "summary": doc.get("capability_text") or doc.get("summary") or "",
+        "parameters": parameters,
+        "win_rate": float(doc.get("reliability_score", 0.0) or 0.0),
+        "invocations": int(doc.get("invocations", 0) or 0),
+        "score": float(doc.get("score", 0.0) or 0.0),
+    }
+
+
 @router.get("/skills")
 async def list_skills(db: Any = Depends(get_db), limit: int = 50) -> list[dict]:
     cursor = db.agent_skills.find().sort("agent", 1).limit(max(1, min(limit, 200)))
-    return [serialise(doc) async for doc in cursor]
+    return [_to_skill(serialise(doc)) async for doc in cursor]
 
 
 class PeerSearchRequest(BaseModel):
@@ -89,7 +113,11 @@ async def peer_search_skills(req: PeerSearchRequest, db: Any = Depends(get_db)) 
         if score > 0:
             scored.append((score, doc))
     scored.sort(key=lambda t: t[0], reverse=True)
-    return {"hits": [serialise(d) for _, d in scored[: max(1, req.k)]]}
+    return {
+        "hits": [
+            {**_to_skill(serialise(d)), "score": s} for s, d in scored[: max(1, req.k)]
+        ]
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
