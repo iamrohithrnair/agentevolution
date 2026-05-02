@@ -2,4 +2,7 @@
 name = "agentevolution"
 version = "0.1.0"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pymongo>=4.17.0",
+    "python-dotenv>=1.2.2",
+]
