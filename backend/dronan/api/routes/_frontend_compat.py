@@ -273,6 +273,9 @@ async def agents_stream(
         if operator_id:
             backlog_q["operator_id"] = operator_id
 
+        last_am = datetime.now(timezone.utc)
+        last_mem = datetime.now(timezone.utc)
+
         try:
             # Agent messages backlog (last 30)
             cursor = (
@@ -280,6 +283,9 @@ async def agents_stream(
             )
             backlog = [doc async for doc in cursor]
             for doc in reversed(backlog):
+                ts = doc.get("ts")
+                if ts and ts > last_am:
+                    last_am = ts
                 yield _sse(_agent_msg_to_envelope(doc))
 
             # Reflections backlog (if caller asked for them)
@@ -292,12 +298,12 @@ async def agents_stream(
                 )
                 mem_backlog = [doc async for doc in mem_cursor]
                 for doc in reversed(mem_backlog):
+                    ts = doc.get("created_at")
+                    if ts and ts > last_mem:
+                        last_mem = ts
                     yield _sse(_agent_msg_to_envelope(doc))
         except Exception as exc:
             log.warning("agents/stream backlog failed: %s", exc)
-
-        last_am = datetime.now(timezone.utc)
-        last_mem = datetime.now(timezone.utc)
 
         try:
             while True:

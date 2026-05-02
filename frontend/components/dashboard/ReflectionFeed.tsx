@@ -41,7 +41,10 @@ export function ReflectionFeed({ limit = 30, filterChips = true }: Props) {
     let cancelled = false;
     listReflections().then((rs) => {
       if (cancelled) return;
-      setItems(rs.slice(0, limit));
+      // Dedupe by id in case the backend returns the same doc twice.
+      const seen = new Set<string>();
+      const unique = rs.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+      setItems(unique.slice(0, limit));
     });
     const off = openAgentsStream({ kind: "reflection" }, (msg) => {
       const synth: MemoryHit = {
@@ -55,7 +58,10 @@ export function ReflectionFeed({ limit = 30, filterChips = true }: Props) {
         },
         created_at: msg.ts,
       };
-      setItems((prev) => [synth, ...prev].slice(0, limit));
+      setItems((prev) => {
+        if (prev.some((p) => p.id === synth.id)) return prev;
+        return [synth, ...prev].slice(0, limit);
+      });
     });
     return () => {
       cancelled = true;
