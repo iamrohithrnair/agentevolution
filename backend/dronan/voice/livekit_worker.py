@@ -447,11 +447,10 @@ async def agent_entrypoint(job: Any) -> None:
         raise RuntimeError("motor not installed; pip install motor")
 
     # LiveKit Agents 1.5 pattern — minimal, verified against the current
-    # starter template at livekit-examples/agent-starter-python. The Phase-6
-    # extras (narrator, signature capture, data-channel toggles) are left
-    # out of this path deliberately until they can be re-verified against
-    # the new SDK surface — see prompts/06 for the roadmap.
+    # starter template at livekit-examples/agent-starter-python.
+    from livekit.agents import function_tool  # type: ignore  # noqa: PLC0415
     from livekit.plugins import google as lk_google  # type: ignore  # noqa: PLC0415
+    from motor.motor_asyncio import AsyncIOMotorClient  # type: ignore  # noqa: PLC0415
 
     settings = get_settings()
 
@@ -459,8 +458,138 @@ async def agent_entrypoint(job: Any) -> None:
     # or publish audio back. AUDIO_ONLY keeps bandwidth small.
     await job.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)  # type: ignore[union-attr]
 
-    # Build the voice pipeline. Each factory already passes api_key= so the
-    # plugins work regardless of which env-var convention they read.
+    # One mongo client per job so the function tool can write missions.
+    db_client = AsyncIOMotorClient(settings.mongodb_uri)  # type: ignore[misc]
+    db = db_client[settings.mongodb_db]
+
+    # ──────────────────────────────────────────────────────────────────
+    # Mission Control agent with a real dispatch tool.
+    # ──────────────────────────────────────────────────────────────────
+    class MissionControl(Agent):  # type: ignore[misc, valid-type]
+        def __init__(self) -> None:
+            super().__init__(instructions=MISSION_CONTROL_SYSTEM)
+
+        @function_tool  # type: ignore[misc]
+        async def dispatch_mission(
+            self,
+            destination: str,
+            supply: str = "blood",
+            priority: str = "high",
+        ) -> str:
+            """Dispatch a medical-drone delivery to a hospital.
+
+            Call this when the operator asks to deliver, send, or dispatch a
+            supply to a named facility. Return a short spoken confirmation.
+
+            Args:
+                destination: Facility name (e.g. "Royal London", "King's
+                    College Hospital", "Newham", "Whipps Cross"). Resolves
+                    against the facilities collection.
+                supply: Payload type. Common values: "blood", "insulin",
+                    "defib", "antivenom", "organ". Defaults to "blood".
+                priority: "low" | "normal" | "high" | "critical". Defaults
+                    to "high" — use "critical" only when the operator says
+                    so.
+            """
+            import uuid as _uuid  # noqa: PLC0415
+            from datetime import datetime as _dt, timezone as _tz  # noqa: PLC0415
+
+            from dronan.sim.mission_sim import simulate_mission  # noqa: PLC0415
+
+            # Allocate a MED-#### id that matches the missions schema.
+            last = await db.missions.find_one(
+                {"_id": {"$regex": r"^MED-\d+$"}}, sort=[("_id", -1)]
+            )
+            n = 0
+            if last and isinstance(last.get("_id"), str):
+                try:
+                    n = int(last["_id"].split("-")[1])
+                except (IndexError, ValueError):
+                    n = 0
+            mission_id = f"MED-{n + 1:04d}"
+
+            # Find a drone that can fly; fall back to Drone1.
+            drone = await db.drones.find_one({"status": "idle"}) or {"_id": "Drone1"}
+            drone_id = drone.get("_id", "Drone1")
+
+            now = _dt.now(_tz.utc)
+            depot = "Depot"
+            stops = [destination]
+            planned_route = [
+                {"location": depot, "kind": "depot"},
+                {"location": destination, "kind": "stop"},
+                {"location": depot, "kind": "return"},
+            ]
+            await db.missions.insert_one(
+                {
+                    "_id": mission_id,
+                    "operator_id": "voice-operator",
+                    "request": f"Deliver {supply} to {destination}",
+                    "depot": depot,
+                    "stops": stops,
+                    "delivery_ids": [],
+                    "drone_id": drone_id,
+                    "status": "planned",
+                    "planned_route": planned_route,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            # Also write the delivery row so the logs page + audit trail
+            # show the payload.
+            del_id = f"D-{_uuid.uuid4().hex[:8]}"
+            try:
+                await db.deliveries.insert_one(
+                    {
+                        "_id": del_id,
+                        "mission_id": mission_id,
+                        "destination_id": destination,
+                        "supply": supply,
+                        "payload_weight_kg": 1.5,
+                        "priority": priority if priority in ("low", "normal", "high", "critical") else "high",
+                        "cold_chain_required": supply in ("blood", "insulin", "vaccine", "organ"),
+                        "status": "pending",
+                        "requested_by": "voice-operator",
+                        "requested_at": now,
+                        "created_at": now,
+                    }
+                )
+            except Exception:
+                pass
+
+            # Fire the simulator so the drone actually moves and the UI
+            # animates. Does not await — fire-and-forget task.
+            asyncio.create_task(simulate_mission(db, mission_id))
+
+            return (
+                f"Mission {mission_id} dispatched. {drone_id} carrying "
+                f"{supply} to {destination}. ETA about three minutes."
+            )
+
+        @function_tool  # type: ignore[misc]
+        async def fleet_status(self) -> str:
+            """Describe the fleet: how many drones, which are flying, battery ranges."""
+            total = 0
+            flying = 0
+            idle = 0
+            batteries: list[float] = []
+            async for d in db.drones.find({}):
+                total += 1
+                if d.get("status") in ("flying", "in_transit", "executing"):
+                    flying += 1
+                elif d.get("status") == "idle":
+                    idle += 1
+                b = d.get("battery")
+                if isinstance(b, (int, float)):
+                    batteries.append(float(b))
+            if not batteries:
+                return "No drones reporting right now."
+            return (
+                f"{total} drones. {flying} airborne, {idle} idle. "
+                f"Battery range {min(batteries):.0f} to {max(batteries):.0f} percent."
+            )
+
+    # Build the voice pipeline.
     google_llm = lk_google.LLM(  # type: ignore[union-attr]
         model=settings.llm_model or "gemini-3.1-flash-lite-preview",
         api_key=os.environ.get("GOOGLE_API_KEY", ""),
@@ -469,22 +598,22 @@ async def agent_entrypoint(job: Any) -> None:
 
     session = AgentSession(  # type: ignore[union-attr, call-arg]
         vad=make_vad(),
-        stt=make_stt(settings.deepgram_model and "en" or "en"),
+        stt=make_stt("en"),
         llm=google_llm,
         tts=make_tts("en"),
     )
 
-    await session.start(
-        room=job.room,
-        agent=Agent(instructions=MISSION_CONTROL_SYSTEM),  # type: ignore[union-attr, call-arg]
-    )
+    await session.start(room=job.room, agent=MissionControl())
     await session.say("Mission Control online. Standing by.")
 
     # Keep the session alive until the operator leaves the room.
-    if hasattr(job, "wait_for_disconnect"):
-        await job.wait_for_disconnect()
-    else:
-        await asyncio.Event().wait()
+    try:
+        if hasattr(job, "wait_for_disconnect"):
+            await job.wait_for_disconnect()
+        else:
+            await asyncio.Event().wait()
+    finally:
+        db_client.close()
 
 
 # --------------------------------------------------------------------------- #
