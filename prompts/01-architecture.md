@@ -49,7 +49,7 @@ This file specifies the **system topology**, the **agent topology**, the **end-t
                                           │ tool calls (idempotent)
                                           ▼
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│  Tools layer (src/dronefleet/tools/*)  — every call writes tool_call_log       │
+│  Tools layer (src/dronan/tools/*)  — every call writes tool_call_log       │
 │  facilities · geofence · route_planner (OR-Tools) · weather · payload          │
 │  · preflight · memory (MongoDBAtlasVectorSearch + Voyage AI) · drone_control   │
 │  · vision (YOLO + GridFS) · audit · analytics                                  │
@@ -433,7 +433,7 @@ services:
 On worker boot, every agent class invokes `register_skill()`. Example for `PlannerAgent`:
 
 ```python
-# src/dronefleet/agents/planner.py
+# src/dronan/agents/planner.py
 SKILL = SkillCard(
     agent_id="plan_route",
     title="Route Planner (OR-Tools VRP)",
@@ -472,7 +472,7 @@ async def register_skill(db):
 ### 7.2 Peer discovery (how supervisor picks the right agent)
 
 ```python
-# src/dronefleet/agents/supervisor.py
+# src/dronan/agents/supervisor.py
 async def pick_peer(sub_task: str, intent: str, k: int = 3):
     qv = await voyage_embed(sub_task)
     pipeline = [

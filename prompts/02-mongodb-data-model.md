@@ -1,4 +1,4 @@
-# 02 · MongoDB Data Model — DroneFleet Agentic Rebuild
+# 02 · MongoDB Data Model — Droran Agentic Rebuild
 
 > **Cross-references**: see [`03-mongodb-vector-rag.md`](./03-mongodb-vector-rag.md) for retrieval over `mission_memory`/`documents`/`document_chunks`, and [`09-seed-and-data.md`](./09-seed-and-data.md) for index-creation and seed scripts.
 
@@ -12,7 +12,7 @@ This file is the **canonical data-model spec**. Implement every collection exact
 6. **Producers / consumers** (which agents read or write).
 7. **Change Stream** subscriptions (which background workers / WebSocket fanouts watch the collection).
 
-Database name is `dronefleet`. All timestamps are stored as BSON `Date` (UTC). All IDs are either ObjectId or stable string slugs (`"Drone1"`, `"UK_CAA_120"`); we mark which.
+Database name is `droran`. All timestamps are stored as BSON `Date` (UTC). All IDs are either ObjectId or stable string slugs (`"Drone1"`, `"UK_CAA_120"`); we mark which.
 
 ---
 
@@ -51,7 +51,7 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
 MONGODB_URI = os.environ["MONGODB_URI"]
-DB_NAME = os.getenv("MONGODB_DB", "dronefleet")
+DB_NAME = os.getenv("MONGODB_DB", "droran")
 
 client = AsyncIOMotorClient(MONGODB_URI, uuidRepresentation="standard")
 db = client[DB_NAME]
@@ -185,7 +185,7 @@ Atlas Search index (JSON, applied via Admin API — see [`09-seed-and-data.md`](
 {
   "name": "facilities_search",
   "collectionName": "facilities",
-  "database": "dronefleet",
+  "database": "droran",
   "mappings": {
     "dynamic": false,
     "fields": {
@@ -567,7 +567,7 @@ Queryable Encryption schema (configured at client construction time):
 
 ```python
 encrypted_fields_map = {
-  "dronefleet.deliveries": {
+  "droran.deliveries": {
     "fields": [
       {"path": "recipient.name",       "bsonType": "string", "queries": [{"queryType": "equality"}]},
       {"path": "recipient.nhs_number", "bsonType": "string", "queries": [{"queryType": "equality"}]},
@@ -987,7 +987,7 @@ Atlas Vector Search index (JSON):
 {
   "name": "mission_memory_vec",
   "collectionName": "mission_memory",
-  "database": "dronefleet",
+  "database": "droran",
   "type": "vectorSearch",
   "fields": [
     { "type": "vector", "path": "embedding", "numDimensions": 1024, "similarity": "cosine" },
@@ -1163,7 +1163,7 @@ Atlas Search index for message recall:
 ```json
 {
   "name":"chat_messages_search",
-  "collectionName":"chat_messages","database":"dronefleet",
+  "collectionName":"chat_messages","database":"droran",
   "mappings":{
     "dynamic":false,
     "fields":{
@@ -1368,7 +1368,7 @@ await db.agent_skills.create_index([("enabled",1),("reliability_score",-1)], nam
 ```json
 {
   "name":"agent_skills_vec",
-  "collectionName":"agent_skills","database":"dronefleet",
+  "collectionName":"agent_skills","database":"droran",
   "type":"vectorSearch",
   "fields":[
     {"type":"vector","path":"embedding","numDimensions":1024,"similarity":"cosine"},
@@ -1693,7 +1693,7 @@ await db.document_chunks.create_index([("chunk_strategy",1)], name="strategy")
 ```json
 {
   "name":"document_chunks_vec",
-  "collectionName":"document_chunks","database":"dronefleet",
+  "collectionName":"document_chunks","database":"droran",
   "type":"vectorSearch",
   "fields":[
     {"type":"vector","path":"embedding","numDimensions":1024,"similarity":"cosine"},
@@ -1707,7 +1707,7 @@ await db.document_chunks.create_index([("chunk_strategy",1)], name="strategy")
 ```json
 {
   "name":"document_chunks_search",
-  "collectionName":"document_chunks","database":"dronefleet",
+  "collectionName":"document_chunks","database":"droran",
   "mappings":{"dynamic":false,
     "fields":{
       "text":{"type":"string","analyzer":"lucene.english"},
@@ -1732,7 +1732,7 @@ Push these via the Atlas Admin API in `seeds/create_indexes.py` (see [`09-seed-a
 ```json
 [
   {
-    "name":"facilities_search","collectionName":"facilities","database":"dronefleet",
+    "name":"facilities_search","collectionName":"facilities","database":"droran",
     "mappings":{"dynamic":false,"fields":{
       "name":{"type":"string","analyzer":"lucene.standard"},
       "address":{"type":"string","analyzer":"lucene.standard"},
@@ -1743,7 +1743,7 @@ Push these via the Atlas Admin API in `seeds/create_indexes.py` (see [`09-seed-a
     }}
   },
   {
-    "name":"chat_messages_search","collectionName":"chat_messages","database":"dronefleet",
+    "name":"chat_messages_search","collectionName":"chat_messages","database":"droran",
     "mappings":{"dynamic":false,"fields":{
       "content":{"type":"string","analyzer":"lucene.standard"},
       "operator_id":{"type":"stringFacet"},
@@ -1752,7 +1752,7 @@ Push these via the Atlas Admin API in `seeds/create_indexes.py` (see [`09-seed-a
     }}
   },
   {
-    "name":"document_chunks_search","collectionName":"document_chunks","database":"dronefleet",
+    "name":"document_chunks_search","collectionName":"document_chunks","database":"droran",
     "mappings":{"dynamic":false,"fields":{
       "text":{"type":"string","analyzer":"lucene.english"},
       "metadata.tags":{"type":"string","analyzer":"lucene.keyword"}
@@ -1766,7 +1766,7 @@ Push these via the Atlas Admin API in `seeds/create_indexes.py` (see [`09-seed-a
 ```json
 [
   {
-    "name":"mission_memory_vec","collectionName":"mission_memory","database":"dronefleet",
+    "name":"mission_memory_vec","collectionName":"mission_memory","database":"droran",
     "type":"vectorSearch",
     "fields":[
       {"type":"vector","path":"embedding","numDimensions":1024,"similarity":"cosine"},
@@ -1778,7 +1778,7 @@ Push these via the Atlas Admin API in `seeds/create_indexes.py` (see [`09-seed-a
     ]
   },
   {
-    "name":"document_chunks_vec","collectionName":"document_chunks","database":"dronefleet",
+    "name":"document_chunks_vec","collectionName":"document_chunks","database":"droran",
     "type":"vectorSearch",
     "fields":[
       {"type":"vector","path":"embedding","numDimensions":1024,"similarity":"cosine"},
@@ -1788,7 +1788,7 @@ Push these via the Atlas Admin API in `seeds/create_indexes.py` (see [`09-seed-a
     ]
   },
   {
-    "name":"agent_skills_vec","collectionName":"agent_skills","database":"dronefleet",
+    "name":"agent_skills_vec","collectionName":"agent_skills","database":"droran",
     "type":"vectorSearch",
     "fields":[
       {"type":"vector","path":"embedding","numDimensions":1024,"similarity":"cosine"},
@@ -1811,7 +1811,7 @@ Trigger configuration:
   "type":"DATABASE",
   "config":{
     "operation_types":["INSERT"],
-    "database":"dronefleet",
+    "database":"droran",
     "collection":"weather_observations",
     "service_name":"mongodb-atlas",
     "match":{ "fullDocument.flyable": false },
@@ -1830,7 +1830,7 @@ exports = async function(changeEvent) {
 
   // 1. Find all in-flight missions whose route touches this location.
   const missions = context.services.get("mongodb-atlas")
-    .db("dronefleet").collection("missions");
+    .db("droran").collection("missions");
   const affected = await missions.find({
     status: "executing",
     "planned_route.name": obs.location_id,
@@ -1862,7 +1862,7 @@ exports = async function(changeEvent) {
 
   // 3. Persist a flight_log entry per affected mission for the audit trail.
   const logs = context.services.get("mongodb-atlas")
-    .db("dronefleet").collection("flight_logs");
+    .db("droran").collection("flight_logs");
   await logs.insertMany(affected.map(m => ({
     drone_id: m.drone_id,
     mission_id: m._id,

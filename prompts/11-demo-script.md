@@ -1,4 +1,4 @@
-# 11 · Live Demo Script — DroneFleet @ Agentic Evolution Hackathon
+# 11 · Live Demo Script — Droran @ Agentic Evolution Hackathon
 
 > **Audience:** the four people on stage at the Founder House finals, May 2026.
 > **Duration target:** 5 minutes ± 10 s. Hard cap: 5 m 30 s.
@@ -9,7 +9,7 @@
 
 ## 1 · Demo Thesis & Why It Wins
 
-DroneFleet is the **first self-evolving, voice-piloted, multi-agent medical drone fleet whose entire reasoning, memory, skill registry, recovery substrate, audit trail, and operator transcript live in a single MongoDB Atlas cluster**. We will, in five minutes, show judges a fleet that (a) listens to a paramedic's voice, (b) plans a multi-stop cold-chain mission across 489 facilities using OR-Tools VRP grounded in `$vectorSearch`-discovered peer agents, (c) survives a `kill -9` mid-mission via `langgraph-checkpoint-mongodb` MongoDBSaver, (d) **provably beats its own previous best ETA by ≥10 % over three back-to-back runs of the same scenario** because `ReflectionAgent` writes lessons to `mission_memory` and the Planner retrieves them, and (e) closes with a forward-looking demand forecast from `synthetic_emergencies`.
+Droran is the **first self-evolving, voice-piloted, multi-agent medical drone fleet whose entire reasoning, memory, skill registry, recovery substrate, audit trail, and operator transcript live in a single MongoDB Atlas cluster**. We will, in five minutes, show judges a fleet that (a) listens to a paramedic's voice, (b) plans a multi-stop cold-chain mission across 489 facilities using OR-Tools VRP grounded in `$vectorSearch`-discovered peer agents, (c) survives a `kill -9` mid-mission via `langgraph-checkpoint-mongodb` MongoDBSaver, (d) **provably beats its own previous best ETA by ≥10 % over three back-to-back runs of the same scenario** because `ReflectionAgent` writes lessons to `mission_memory` and the Planner retrieves them, and (e) closes with a forward-looking demand forecast from `synthetic_emergencies`.
 
 | Wow moment | Rubric criterion it scores | Notes |
 |---|---|---|
@@ -36,17 +36,17 @@ If we land four of those six on time and on cue, we win.
 ### 2.2 Browser tabs (left → right, in this order, **pinned**)
 
 1. **Tab 1 — Next.js dashboard** at `http://localhost:3000/missions/live` (light mode; Tailwind v4; Leaflet + deck.gl + reasoning stream + memory inspector visible). Keep zoom at 100 %. Pre-open the Mission Console panel.
-2. **Tab 2 — Atlas Data Explorer** scoped to `dronefleet_demo` DB. Pre-pin the four collections we will hit live, in order: `mission_memory`, `agent_skills`, `langgraph_checkpoints`, `tool_call_log`. Pre-run the queries in §2.6 so the result panes are hot.
+2. **Tab 2 — Atlas Data Explorer** scoped to `droran_demo` DB. Pre-pin the four collections we will hit live, in order: `mission_memory`, `agent_skills`, `langgraph_checkpoints`, `tool_call_log`. Pre-run the queries in §2.6 so the result panes are hot.
 3. **Tab 3 — Atlas Vector Search index page** showing `mission_memory_voyage` + `regulations_voyage` indexes, both `READY`.
-4. **Tab 4 — LangSmith trace viewer** filtered to project `dronefleet-demo`, sorted newest-first. Pre-open one rehearsal run for visual reference.
-5. **Tab 5 — LiveKit room dashboard** at `https://cloud.livekit.io/project/dronefleet-demo/rooms`, with the room `mission-console` already created and one Egress recording armed for backup.
+4. **Tab 4 — LangSmith trace viewer** filtered to project `droran-demo`, sorted newest-first. Pre-open one rehearsal run for visual reference.
+5. **Tab 5 — LiveKit room dashboard** at `https://cloud.livekit.io/project/droran-demo/rooms`, with the room `mission-console` already created and one Egress recording armed for backup.
 6. **Tab 6 — Backup video** (`assets/dryrun-take3.mp4`) hidden in a pinned tab labelled "DO NOT CLICK".
 
 ### 2.3 Terminals (tmux session `demo`, four panes)
 
-- **Pane 1 (top-left):** `uv run uvicorn dronefleet.api.app:app --host 0.0.0.0 --port 8080` — FastAPI + LangGraph worker.
-- **Pane 2 (top-right):** `uv run python -m dronefleet.workers.livekit_agent` — LiveKit agent worker (Deepgram Nova-3 STT, ElevenLabs Turbo v2.5 TTS, Silero VAD).
-- **Pane 3 (bottom-left):** `mongosh "$MONGODB_URI"` already attached to `dronefleet_demo`. Pre-typed (not executed) command:
+- **Pane 1 (top-left):** `uv run uvicorn droran.api.app:app --host 0.0.0.0 --port 8080` — FastAPI + LangGraph worker.
+- **Pane 2 (top-right):** `uv run python -m droran.workers.livekit_agent` — LiveKit agent worker (Deepgram Nova-3 STT, ElevenLabs Turbo v2.5 TTS, Silero VAD).
+- **Pane 3 (bottom-left):** `mongosh "$MONGODB_URI"` already attached to `droran_demo`. Pre-typed (not executed) command:
   ```js
   db.langgraph_checkpoints.find({thread_id: MISSION_ID}).sort({_id:-1}).limit(1).pretty()
   ```
@@ -104,13 +104,13 @@ Total budget: **5 m 00 s**. Each act is ~60 s; we keep a 30 s elastic buffer for
 
 ### Act 1 — "Mass Casualty Triage" (0:00 → 1:00)
 
-**Goal:** Establish that DroneFleet hears, reasons, and acts in <10 s, and prove the **agent skill registry** is real.
+**Goal:** Establish that Droran hears, reasons, and acts in <10 s, and prove the **agent skill registry** is real.
 
 **Presenter (Rohith) — verbatim, eyes on the room not the screen:**
 > "It's 14:42, M25 junction 14, three priority casualties. In the next ten seconds, four agents are going to listen to me, vector-search MongoDB to discover which of their seventeen peers they need, plan three drones across four hundred and eighty-nine facilities, and roll. Watch the map."
 
 **Operator voice command (Rohith into the mic):**
-> "DroneFleet — multi-vehicle accident, M25 junction 14, three priority casualties. Dispatch O-negative blood, two units of plasma, and a trauma kit. Cold chain critical. Go now."
+> "Droran — multi-vehicle accident, M25 junction 14, three priority casualties. Dispatch O-negative blood, two units of plasma, and a trauma kit. Cold chain critical. Go now."
 
 **Narrator (ElevenLabs, Aria-medical-v3, ~180 wpm):**
 > *<prosody rate="medium">Acknowledged. Triaging three casualties.</prosody> <break time="200ms"/> <prosody rate="medium">Discovering payload specialist… <emphasis>match found</emphasis>. Dispatching <say-as interpret-as="cardinal">three</say-as> drones from Royal London, Homerton, and Whipps Cross. Cold-chain telemetry armed.*"
@@ -144,7 +144,7 @@ Total budget: **5 m 00 s**. Each act is ~60 s; we keep a 30 s elastic buffer for
 > "If a Class A2 drone loses C2 link over a populated congested area at night, what does CAP 722 require us to do, and how long do we have?"
 
 **Voice command relay (Rohith, into mic):**
-> "DroneFleet — answer the judge."
+> "Droran — answer the judge."
 
 **On-screen behaviour:**
 - Reasoning Stream shows `query_rewrite → multi_query(3) → hybrid_search(vector+bm25) → rrf_fuse → voyage_rerank → critic` then a second pass: `critic(insufficient) → query_expand → hybrid_search → rerank → critic(grounded) → synthesize`.
@@ -200,7 +200,7 @@ Total budget: **5 m 00 s**. Each act is ~60 s; we keep a 30 s elastic buffer for
 **Presenter:** "Same accident, third time. Watch the ETA. Last time we ran this exact scenario the planner picked Royal London. Tonight, it learned that traffic at junction 14 favours Homerton at this time of day. Let's see."
 
 **Voice command:**
-> "DroneFleet — replay scenario M25-J14, take 3."
+> "Droran — replay scenario M25-J14, take 3."
 
 **On-screen:** the Mission Console shows a live ETA counter that **starts at 12:14 and ends at 10:48** as the planner finalises. Memory Inspector explicitly highlights three retrieved cards from `mission_memory` with `kind: "route_lesson"` and `evidence: ["take-1", "take-2"]`.
 
@@ -230,7 +230,7 @@ Total budget: **5 m 00 s**. Each act is ~60 s; we keep a 30 s elastic buffer for
 - `audit_trail`: open one document for the O-negative blood unit dispatched in Act 1 — show the append-only chain (custody → handoff → recipient signature event).
 
 **Narrator — closing voice line, ~20 s, ElevenLabs Turbo v2.5:**
-> "*DroneFleet is one hundred percent MongoDB-native: every reasoning frame, every memory card, every audit signature, every voice transcript, persisted in Atlas. In tonight's demo we cut three minutes off a mass-casualty response, recovered from a hard kill without losing a single payload, and watched the system get smarter in real time. Scaled to NHS Blood and Transplant, that is twelve thousand fewer wasted units a year. Scaled to WHO disaster response, that is hours, not days. Thank you.*"
+> "*Droran is one hundred percent MongoDB-native: every reasoning frame, every memory card, every audit signature, every voice transcript, persisted in Atlas. In tonight's demo we cut three minutes off a mass-casualty response, recovered from a hard kill without losing a single payload, and watched the system get smarter in real time. Scaled to NHS Blood and Transplant, that is twelve thousand fewer wasted units a year. Scaled to WHO disaster response, that is hours, not days. Thank you.*"
 
 **Presenter (lights up):** "Questions."
 
@@ -258,7 +258,7 @@ Total budget: **5 m 00 s**. Each act is ~60 s; we keep a 30 s elastic buffer for
 | Voice not transcribed in Act 1 | Reasoning Stream silent for 3 s | Switch to Tab 6 backup video `assets/act1.mp4`, narrate live |
 | Atlas latency spike (>1 s ping) | smoke.sh re-run on a side terminal turns yellow | Skip Tab 2 cut-aways for the rest of the run; mongosh queries only |
 | LangGraph node hangs | Pane 4 logs show no `node=` for 5 s | Co-pilot kills + restarts uvicorn (this becomes Act 3 early) |
-| `kill -9` fails to resume | No WS reconnect after 8 s | Co-pilot runs `uv run python -m dronefleet.scripts.replay --thread $MISSION_ID` |
+| `kill -9` fails to resume | No WS reconnect after 8 s | Co-pilot runs `uv run python -m droran.scripts.replay --thread $MISSION_ID` |
 | Take 3 doesn't beat Take 1 | ETA counter ≥ Take 1 ETA | Use the pre-rehearsed Take 2 numbers from `experiments` collection; narrate as "we are showing two of three improvements" |
 | Mic dies | Driver shows no audio levels | Switch input device to AirPods Pro (one keypress, alias `mic-fallback`) |
 | Network down entirely | Atlas tab errors | Switch to **fully recorded backup**: `assets/dryrun-take3.mp4` plays for the remaining time |
@@ -272,7 +272,7 @@ Total budget: **5 m 00 s**. Each act is ~60 s; we keep a 30 s elastic buffer for
 - **"How is this different from Zipline?"**
   → "Zipline owns the airframe. We are a **mission-control plane** that sits above any drone vendor — Zipline, Wingcopter, Apian. Tonight's demo treated each drone as a stateless executor; intelligence lives in Atlas."
 - **"Show me where LangChain ends and your code begins."**
-  → Open `04-langchain-agents.md` in a side window: "LangChain gives us the `StateGraph` primitive and tool decorators. Everything in `dronefleet/agents/` — supervisor routing via `$vectorSearch`, the saga compensations in `state/saga.py`, the reflection→memory loop — is ours."
+  → Open `04-langchain-agents.md` in a side window: "LangChain gives us the `StateGraph` primitive and tool decorators. Everything in `dronan/agents/` — supervisor routing via `$vectorSearch`, the saga compensations in `state/saga.py`, the reflection→memory loop — is ours."
 
 ---
 

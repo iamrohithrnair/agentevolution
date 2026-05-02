@@ -1,6 +1,6 @@
 # 06 · Voice Layer — LiveKit Agents + Deepgram Nova-3 + ElevenLabs Turbo v2.5
 
-> **Scope.** Build the entire real-time voice mission-control loop for DroneFleet. Operator speaks → drones obey → MongoDB persists → ElevenLabs narrates back. This file is implementation-grade: copy the code, change `os.getenv` keys, run.
+> **Scope.** Build the entire real-time voice mission-control loop for Droran. Operator speaks → drones obey → MongoDB persists → ElevenLabs narrates back. This file is implementation-grade: copy the code, change `os.getenv` keys, run.
 >
 > **Cross-references.**
 > - LangGraph supervisor and agent contracts live in [`04-langchain-agents.md`](./04-langchain-agents.md).
@@ -91,10 +91,10 @@ flowchart LR
 
 Issue short-lived JWTs for the browser to join its room. Use the official `livekit-api` SDK. The JWT also encodes the `operator_id` so the Worker can read it from `participant.identity` without trusting client-side strings.
 
-> Path: `src/dronefleet/api/routes/livekit_token.py` — see [`07-backend-fastapi.md §3.18`](./07-backend-fastapi.md#318-livekit-token).
+> Path: `src/dronan/api/routes/livekit_token.py` — see [`07-backend-fastapi.md §3.18`](./07-backend-fastapi.md#318-livekit-token).
 
 ```python
-# src/dronefleet/api/routes/livekit_token.py
+# src/dronan/api/routes/livekit_token.py
 from __future__ import annotations
 import os, json, uuid, time
 from typing import Literal
@@ -102,8 +102,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from livekit import api as lkapi
 
-from dronefleet.api.deps import current_user, get_db
-from dronefleet.models.user import User
+from droran.api.deps import current_user, get_db
+from droran.models.user import User
 
 router = APIRouter(prefix="/api/livekit", tags=["voice"])
 
@@ -191,13 +191,13 @@ async def mint_token(req: TokenRequest, user: User = Depends(current_user)):
 This is the heart of the voice layer. It uses `livekit-agents 0.x`, `livekit-plugins-deepgram`, `livekit-plugins-elevenlabs`, `livekit-plugins-silero`. Run with:
 
 ```bash
-uv run python -m dronefleet.voice.livekit_worker dev   # local
-uv run python -m dronefleet.voice.livekit_worker start # production
+uv run python -m droran.voice.livekit_worker dev   # local
+uv run python -m droran.voice.livekit_worker start # production
 ```
 
 ```python
-# src/dronefleet/voice/livekit_worker.py
-"""LiveKit Worker for DroneFleet voice mission control.
+# src/dronan/voice/livekit_worker.py
+"""LiveKit Worker for Droran voice mission control.
 
 Responsibilities
 ----------------
@@ -237,12 +237,12 @@ from livekit.agents import (
 from livekit.plugins import deepgram, elevenlabs, silero
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
-from dronefleet.graph import build_supervisor          # see 04-langchain-agents.md §6
-from dronefleet.config import settings
-from dronefleet.tools.audit import write_audit         # see 03-tools-mcp.md
-from dronefleet.tools.tracing import open_span         # see 07-backend-fastapi.md §10
+from droran.graph import build_supervisor          # see 04-langchain-agents.md §6
+from droran.config import settings
+from droran.tools.audit import write_audit         # see 03-tools-mcp.md
+from droran.tools.tracing import open_span         # see 07-backend-fastapi.md §10
 
-log = logging.getLogger("dronefleet.voice")
+log = logging.getLogger("droran.voice")
 
 # --------------------------------------------------------------------------- #
 #  Voice configuration
@@ -654,7 +654,7 @@ async def agent_entrypoint(job: JobContext):
         )
 
     # Greet
-    await session.start(room=job.room, agent=Agent(instructions="You are DroneFleet Mission Control."))
+    await session.start(room=job.room, agent=Agent(instructions="You are Droran Mission Control."))
     await session.say(
         "Mission Control online. All drones nominal. Standing by.",
         allow_interruptions=True,
@@ -675,7 +675,7 @@ def main():
     cli.run_app(WorkerOptions(
         entrypoint_fnc=agent_entrypoint,
         # Only attach to rooms minted by our token endpoint
-        agent_name="dronefleet-mission-control",
+        agent_name="droran-mission-control",
         # Give plugins time to download models on cold start
         prewarm_fnc=lambda proc: silero.VAD.load(),
     ))
@@ -851,13 +851,13 @@ async def _t_first_audio(ev):  # type: ignore
 If the conference Wi-Fi murders LiveKit, fall back to typed input streamed via SSE. The route lives in [`07-backend-fastapi.md §3.1`](./07-backend-fastapi.md#31-post-apichat). Worker doesn't run; the Supervisor is invoked directly.
 
 ```python
-# src/dronefleet/api/routes/chat.py (excerpt)
+# src/dronan/api/routes/chat.py (excerpt)
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from dronefleet.api.deps import current_user, get_db
-from dronefleet.graph import build_supervisor
+from droran.api.deps import current_user, get_db
+from droran.graph import build_supervisor
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -894,7 +894,7 @@ The frontend `<VoiceConsole/>` exposes a "Text mode" toggle that swaps `LiveKitR
 You can also run the **worker in text mode locally** for unit tests:
 
 ```bash
-uv run python -m dronefleet.voice.livekit_worker dev --text-mode
+uv run python -m droran.voice.livekit_worker dev --text-mode
 ```
 
 When `--text-mode` is passed we skip `cli.run_app` and start a small REPL:
@@ -952,17 +952,17 @@ The Next.js side wires `room.on('dataReceived', ...)` to `sonner` (`toast.error`
 docker compose up -d mongo
 
 # 2. seed
-uv run python -m dronefleet.seeds.create_indexes
-uv run python -m dronefleet.seeds.seed_facilities
+uv run python -m droran.seeds.create_indexes
+uv run python -m droran.seeds.seed_facilities
 
 # 3. run FastAPI (mints tokens)
-uv run uvicorn dronefleet.api.main:app --reload --port 8000
+uv run uvicorn droran.api.main:app --reload --port 8000
 
 # 4. in another shell, run the LiveKit worker
-uv run python -m dronefleet.voice.livekit_worker dev
+uv run python -m droran.voice.livekit_worker dev
 
 # 5. text-mode smoke
-uv run python -m dronefleet.voice.livekit_worker dev --text-mode
+uv run python -m droran.voice.livekit_worker dev --text-mode
 > dispatch o-negative blood to royal london
 < Acknowledged. Drone 1 wheels-up...
 

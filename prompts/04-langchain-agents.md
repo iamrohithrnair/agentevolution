@@ -1,5 +1,5 @@
 # 04 · LangChain + LangGraph Agent Runtime Spec
-**DroneFleet · MongoDB Agentic Evolution Hackathon**
+**Droran · MongoDB Agentic Evolution Hackathon**
 
 > Cross-references: `01-system-architecture.md`, `02-mongodb-data-model.md`,
 > `03-realtime-voice.md`, `05-state-recovery.md`, `06-skills-discovery.md`,
@@ -34,7 +34,7 @@ This is the single channel-state object passed between every node. Persisted
 verbatim by `MongoDBSaver` (see `05-state-recovery.md §1`).
 
 ```python
-# dronefleet/agents/state.py
+# dronan/agents/state.py
 from __future__ import annotations
 from typing import TypedDict, Literal, Annotated
 from operator import add
@@ -77,13 +77,13 @@ last-writer-wins clobbering.
 ### 1.2 `StateGraph` wiring
 
 ```python
-# dronefleet/agents/graph.py
+# dronan/agents/graph.py
 from langgraph.graph import StateGraph, START, END
 from langgraph_checkpoint_mongodb import MongoDBSaver
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from dronefleet.agents.state import MissionState
-from dronefleet.agents.nodes import (
+from droran.agents.state import MissionState
+from droran.agents.nodes import (
     supervisor_node, interpreter_node, memory_node, planner_node,
     weather_node, geofence_node, preflight_node, dispatch_node,
     vision_node, replanner_node, anomaly_node, deconfliction_node,
@@ -135,7 +135,7 @@ def build_graph(mongo_uri: str) -> "CompiledGraph":
 
     # Async MongoDB checkpointer (one collection, thread_id == mission_id).
     client = AsyncIOMotorClient(mongo_uri)
-    checkpointer = MongoDBSaver(client, db_name="dronefleet", collection_name="langgraph_checkpoints")
+    checkpointer = MongoDBSaver(client, db_name="droran", collection_name="langgraph_checkpoints")
 
     return g.compile(checkpointer=checkpointer)
 ```
@@ -424,9 +424,9 @@ Schema (full index spec in `02-mongodb-data-model.md §6`):
 ### 3.2 Self-registration at boot
 
 ```python
-# dronefleet/agents/registry.py
-from dronefleet.embed import voyage_embed
-from dronefleet.db import db
+# dronan/agents/registry.py
+from droran.embed import voyage_embed
+from droran.db import db
 
 async def register_skill(agent: "BaseAgent") -> None:
     desc = agent.skill_descriptor()                     # subclass overrides
@@ -447,9 +447,9 @@ async def register_all(agents: list["BaseAgent"]) -> None:
 Full async code:
 
 ```python
-# dronefleet/agents/supervisor.py
-from dronefleet.embed import voyage_embed, voyage_rerank
-from dronefleet.db import db
+# dronan/agents/supervisor.py
+from droran.embed import voyage_embed, voyage_rerank
+from droran.db import db
 
 async def delegate(sub_task: str, mission_id: str,
                    k_candidates: int = 5) -> str:
@@ -523,7 +523,7 @@ in `10 §5`.
 ### 4.1 `AgentMessage` Pydantic model
 
 ```python
-# dronefleet/agents/protocol.py
+# dronan/agents/protocol.py
 from datetime import datetime
 from typing import Any, Literal
 from pydantic import BaseModel, Field
@@ -575,7 +575,7 @@ db.agent_messages.create_index([("from", 1), ("to", 1)])
 The replay endpoint (powering the Memory Inspector — see `09-frontend.md`):
 
 ```python
-# dronefleet/api/replay.py
+# dronan/api/replay.py
 from fastapi import APIRouter
 router = APIRouter()
 
@@ -624,7 +624,7 @@ all deterministic side-effects are deduped by the idempotency key (see
 ### 5.2 Layer 1 · `WorkingMemoryBuffer`
 
 ```python
-# dronefleet/memory/working.py
+# dronan/memory/working.py
 from langchain_mongodb import MongoDBChatMessageHistory
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain_openai import ChatOpenAI
@@ -634,7 +634,7 @@ def build_working_buffer(operator_id: str, mongo_uri: str,
     history = MongoDBChatMessageHistory(
         connection_string=mongo_uri,
         session_id=operator_id,
-        database_name="dronefleet",
+        database_name="droran",
         collection_name="chat_history",
     )
     return ConversationSummaryBufferMemory(
@@ -648,7 +648,7 @@ def build_working_buffer(operator_id: str, mongo_uri: str,
 ### 5.3 Layer 2 · `EpisodicRetriever`
 
 ```python
-# dronefleet/memory/episodic.py
+# dronan/memory/episodic.py
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_voyageai import VoyageAIEmbeddings
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -659,7 +659,7 @@ def episodic_retriever(mongo_uri: str, k: int = 12,
                        weather_class: str | None = None):
     store = MongoDBAtlasVectorSearch.from_connection_string(
         connection_string=mongo_uri,
-        namespace="dronefleet.mission_memory",
+        namespace="droran.mission_memory",
         embedding=VoyageAIEmbeddings(model="voyage-3"),
         index_name="mission_memory_vec",
         text_key="summary",
@@ -676,7 +676,7 @@ def episodic_retriever(mongo_uri: str, k: int = 12,
 ### 5.4 Layer 3 · `ContextualCompressionRetriever` with Voyage rerank
 
 ```python
-# dronefleet/memory/compress.py
+# dronan/memory/compress.py
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain_voyageai import VoyageAIRerank
 
@@ -691,7 +691,7 @@ def compressed_retriever(base_retriever, top_n: int = 4):
 ### 5.5 `TokenBudgeter`
 
 ```python
-# dronefleet/memory/budget.py
+# dronan/memory/budget.py
 from __future__ import annotations
 import tiktoken
 from typing import Iterable
@@ -740,7 +740,7 @@ class TokenBudgeter:
 ### 5.6 Wiring the three layers into a node
 
 ```python
-# dronefleet/agents/nodes/planner_node.py
+# dronan/agents/nodes/planner_node.py
 async def planner_node(state: MissionState) -> dict:
     operator_id = state["operator_id"]
     region      = state.get("parsed_task", {}).get("region")
@@ -772,7 +772,7 @@ async def planner_node(state: MissionState) -> dict:
 ### 6.1 Tool descriptor
 
 ```python
-# dronefleet/tools/base.py
+# dronan/tools/base.py
 from pydantic import BaseModel
 from typing import Literal, Any
 from langchain_core.tools import BaseTool
@@ -794,7 +794,7 @@ Every tool is an `@tool`-decorated async function whose Pydantic schema is
 introspected:
 
 ```python
-# dronefleet/tools/vrp.py
+# dronan/tools/vrp.py
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
@@ -817,14 +817,14 @@ class RoutePlan(BaseModel):
        wait=wait_exponential_jitter(initial=0.2, max=2.0))
 async def solve_vrp(**kwargs) -> RoutePlan:
     """Solve the drone vehicle-routing problem with OR-Tools."""
-    from dronefleet.planning.vrp import solve
+    from droran.planning.vrp import solve
     return await solve(VRPParams(**kwargs))
 ```
 
 ### 6.2 `tool_registry` collection
 
 ```python
-# dronefleet/tools/registry.py
+# dronan/tools/registry.py
 async def register_tool(tool_obj, side_effect: SideEffect,
                         idempotency: str = "key"):
     desc = ToolDescriptor(
@@ -884,7 +884,7 @@ debate between Interpreter, Memory, and Planner — each critiques the other's
 parse, then Interpreter emits the final structured task.
 
 ```python
-# dronefleet/agents/patterns/debate.py
+# dronan/agents/patterns/debate.py
 from langgraph.graph import StateGraph, START, END
 
 class DebateState(TypedDict, total=False):
@@ -952,7 +952,7 @@ concurrently against the telemetry stream. ReplannerAgent acts as the gate
 that triggers only when at least one produces a critical signal.
 
 ```python
-# dronefleet/agents/patterns/monitor.py
+# dronan/agents/patterns/monitor.py
 from langgraph.graph import StateGraph, START, END
 
 class MonitorState(MissionState):
@@ -1136,7 +1136,7 @@ A direct port of `ai/validator.py` and `ai/confidence.py`, callable by both
 InterpreterAgent and PlannerAgent.
 
 ```python
-# dronefleet/agents/validation.py
+# dronan/agents/validation.py
 from typing import Literal
 from pydantic import BaseModel
 
@@ -1153,8 +1153,8 @@ class ValidationLayer:
         self.threshold = threshold
 
     async def validate_parsed(self, parsed: dict, request: str) -> ValidationResult:
-        from dronefleet.legacy.validator import validate_parsed_output
-        from dronefleet.legacy.confidence import score_confidence
+        from droran.legacy.validator import validate_parsed_output
+        from droran.legacy.confidence import score_confidence
         v = validate_parsed_output(parsed, request)
         c = score_confidence(request, parsed)
         v.confidence_overall = c["overall"]
@@ -1321,13 +1321,13 @@ Operator says: *"Send blood to Clinic B urgently and avoid the airport corridor.
 ## 11 · Boot sequence (full)
 
 ```python
-# dronefleet/main.py
+# dronan/main.py
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
-from dronefleet.agents.graph import build_graph
-from dronefleet.agents.registry import register_all
-from dronefleet.tools.registry import register_tool
-from dronefleet.agents.all import ALL_AGENTS, ALL_TOOLS
+from droran.agents.graph import build_graph
+from droran.agents.registry import register_all
+from droran.tools.registry import register_tool
+from droran.agents.all import ALL_AGENTS, ALL_TOOLS
 
 async def boot():
     client = AsyncIOMotorClient(MONGO_URI)

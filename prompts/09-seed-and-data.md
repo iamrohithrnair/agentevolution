@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 
 MONGODB_URI = os.environ["MONGODB_URI"]
-DB_NAME     = os.getenv("MONGODB_DB", "dronefleet")
+DB_NAME     = os.getenv("MONGODB_DB", "droran")
 
 ATLAS_PUBLIC_KEY  = os.environ["ATLAS_PUBLIC_KEY"]
 ATLAS_PRIVATE_KEY = os.environ["ATLAS_PRIVATE_KEY"]
@@ -62,7 +62,7 @@ def sha256_text(s: str) -> str:
 
 ```
 MONGODB_URI=mongodb+srv://user:pwd@cluster0.xxxxx.mongodb.net
-MONGODB_DB=dronefleet
+MONGODB_DB=droran
 ATLAS_PUBLIC_KEY=...
 ATLAS_PRIVATE_KEY=...
 ATLAS_GROUP_ID=66...
@@ -369,7 +369,7 @@ XLSX_PATH = os.getenv(
     os.path.join(os.path.dirname(__file__), "..", "DroneFleet", "data", "facilities.xlsx"),
 )
 
-# Hardcoded from original DroneFleet/config.py LOCATIONS (verbatim).
+# Hardcoded from original Droran/config.py LOCATIONS (verbatim).
 HARDCODED_LOCATIONS: dict[str, dict[str, Any]] = {
     "Depot":         {"x":0,"y":0,"z":-30,"lat":51.5074,"lon":-0.1278,"description":"Main drone depot / base station","type":"depot"},
     "Clinic A":      {"x":100,"y":50,"z":-30,"lat":51.5124,"lon":-0.1200,"description":"General medical clinic","type":"clinic"},
@@ -1424,8 +1424,8 @@ jobs:
       - run: make check
 ```
 
-Use a **separate Atlas database** for CI (`MONGODB_DB=dronefleet_ci`) so PR runs never touch the demo cluster.
+Use a **separate Atlas database** for CI (`MONGODB_DB=droran_ci`) so PR runs never touch the demo cluster.
 
 ---
 
-**End of `09-seed-and-data.md`.** With these scripts in place, a fresh clone goes from zero to fully-seeded, queryable, vector-search-ready in a single command. Combined with [`02-mongodb-data-model.md`](./02-mongodb-data-model.md) (schemas + change-stream wiring) and [`03-mongodb-vector-rag.md`](./03-mongodb-vector-rag.md) (agentic adaptive RAG), the MongoDB layer of the DroneFleet rebuild is fully specified.
+**End of `09-seed-and-data.md`.** With these scripts in place, a fresh clone goes from zero to fully-seeded, queryable, vector-search-ready in a single command. Combined with [`02-mongodb-data-model.md`](./02-mongodb-data-model.md) (schemas + change-stream wiring) and [`03-mongodb-vector-rag.md`](./03-mongodb-vector-rag.md) (agentic adaptive RAG), the MongoDB layer of the Droran rebuild is fully specified.

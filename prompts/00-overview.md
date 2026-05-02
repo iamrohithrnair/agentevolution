@@ -106,7 +106,7 @@ These terms appear across all 13 prompt files. Bind them now.
 | **Skill Card** | A document describing one agent's capability surface, embedded for peer discovery. | `agent_skills` |
 | **Memory Card** | Any document in `mission_memory` retrievable via `$vectorSearch`. Typed by `kind`. | `mission_memory` |
 | **Lesson** | A specific actionable insight inside a Reflection (e.g., *"avoid west corridor when wind > 12 m/s"*). Stored as a list under `metadata.lessons`. | `mission_memory.metadata.lessons[]` |
-| **Plan State** | The TypedDict shared across LangGraph nodes during a mission (`MissionPlanState` in `src/dronefleet/graph.py`). | In-memory + checkpointed |
+| **Plan State** | The TypedDict shared across LangGraph nodes during a mission (`MissionPlanState` in `src/dronan/graph.py`). | In-memory + checkpointed |
 | **Checkpoint** | A `MongoDBSaver` snapshot of a LangGraph thread, keyed by `thread_id = mission_id`. | `checkpoints` (managed by `langgraph-checkpoint-mongodb`) |
 | **Reasoning Stream** | The live UI panel that tails the `traces` collection via Change Streams and renders supervisor decisions. | `traces` + `/ws/traces/{mission_id}` |
 | **Skill Registry** | The vector-searchable index over `agent_skills` used by Supervisor for peer discovery. | Atlas Vector Search index `agent_skills_vec` |

@@ -1,8 +1,8 @@
-# 03 · MongoDB Vector Search + Agentic Adaptive RAG — DroneFleet
+# 03 · MongoDB Vector Search + Agentic Adaptive RAG — Droran
 
 > **Cross-references**: schema definitions in [`02-mongodb-data-model.md`](./02-mongodb-data-model.md); seed scripts that produce the corpus in [`09-seed-and-data.md`](./09-seed-and-data.md).
 
-This file specifies the **adaptive, agentic retrieval system** that powers DroneFleet's planner, replanner, regulation reasoner, and reflection loop. It is built around **Voyage AI** embeddings + reranker, **MongoDB Atlas Vector Search** + Atlas Search, and a self-improving **`RetrievalLearner`** that tunes itself nightly from outcome feedback.
+This file specifies the **adaptive, agentic retrieval system** that powers Droran's planner, replanner, regulation reasoner, and reflection loop. It is built around **Voyage AI** embeddings + reranker, **MongoDB Atlas Vector Search** + Atlas Search, and a self-improving **`RetrievalLearner`** that tunes itself nightly from outcome feedback.
 
 The user's brief: *"Experiment modifying query approaches, altering chunking, reordering results based on input. How can you create an agentic and adaptive retrieval system that improves over time and performs reasoning across various documents and sources?"* — every section below executes against that brief.
 
@@ -57,7 +57,7 @@ reranker = VoyageAIRerank(
 )
 
 mongo = AsyncIOMotorClient(os.environ["MONGODB_URI"])
-db    = mongo["dronefleet"]
+db    = mongo["droran"]
 ```
 
 We default to `voyage-3-large` for write-side embeddings (best quality), use `voyage-3` @ 256-dim for very-hot reads (operator preferences), and reach for `voyage-context-3` when chunking long, hierarchical documents (regulations, ops manuals) so each chunk's embedding is *contextualised by the surrounding document* — the late-chunking strategy in §2.4.
@@ -898,7 +898,7 @@ from langchain_mongodb import MongoDBAtlasVectorSearch, MongoDBChatMessageHistor
 from .clients import mongo, embeddings_primary
 
 mission_memory_vs = MongoDBAtlasVectorSearch(
-    collection=mongo["dronefleet"]["mission_memory"],
+    collection=mongo["droran"]["mission_memory"],
     embedding=embeddings_primary,
     index_name="mission_memory_vec",
     text_key="text",
@@ -909,7 +909,7 @@ mission_memory_vs = MongoDBAtlasVectorSearch(
 def chat_history_for(operator_id: str, session_id: str) -> MongoDBChatMessageHistory:
     return MongoDBChatMessageHistory(
         connection_string=mongo.address[0] if False else __import__("os").environ["MONGODB_URI"],
-        database_name="dronefleet",
+        database_name="droran",
         collection_name="chat_messages",
         session_id=f"{operator_id}:{session_id}",
     )

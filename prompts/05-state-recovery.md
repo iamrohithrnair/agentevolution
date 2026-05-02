@@ -1,5 +1,5 @@
 # 05 · State, Tool Execution & Recovery Spec
-**DroneFleet · MongoDB Agentic Evolution Hackathon**
+**Droran · MongoDB Agentic Evolution Hackathon**
 
 > Cross-references: `01-system-architecture.md`, `02-mongodb-data-model.md`,
 > `04-langchain-agents.md`, `06-skills-discovery.md`, `10-self-evolution.md`,
@@ -24,7 +24,7 @@ every mission is one LangGraph thread; every node returns control after
 which a checkpoint is written; resume is a one-line invocation.
 
 ```python
-# dronefleet/state/checkpointer.py
+# dronan/state/checkpointer.py
 from __future__ import annotations
 from motor.motor_asyncio import AsyncIOMotorClient
 from langgraph_checkpoint_mongodb import MongoDBSaver
@@ -33,7 +33,7 @@ def build_checkpointer(mongo_uri: str) -> MongoDBSaver:
     client = AsyncIOMotorClient(mongo_uri, uuidRepresentation="standard")
     return MongoDBSaver(
         client=client,
-        db_name="dronefleet",
+        db_name="droran",
         collection_name="langgraph_checkpoints",
         # Optional: dedicated writes collection for incremental channel writes
         writes_collection_name="langgraph_checkpoint_writes",
@@ -46,9 +46,9 @@ def thread_config(mission_id: str) -> dict:
 ### 1.2 Compile the graph with the checkpointer
 
 ```python
-# dronefleet/agents/graph.py
+# dronan/agents/graph.py
 from langgraph.graph import StateGraph, START, END
-from dronefleet.state.checkpointer import build_checkpointer
+from droran.state.checkpointer import build_checkpointer
 
 def compile_graph(mongo_uri: str):
     g = StateGraph(MissionState)
@@ -139,7 +139,7 @@ Every tool that touches **state, network, or the simulator** is wrapped in
 ### 2.1 Idempotency key
 
 ```python
-# dronefleet/state/idempotency.py
+# dronan/state/idempotency.py
 import hashlib, json
 from typing import Any
 
@@ -198,7 +198,7 @@ await db.tool_call_log.create_index(
 ### 2.4 The decorator (production-grade)
 
 ```python
-# dronefleet/state/traceable.py
+# dronan/state/traceable.py
 from __future__ import annotations
 import asyncio, hashlib, json, time, traceback
 from datetime import datetime
@@ -210,8 +210,8 @@ from tenacity import (
 )
 from pymongo.errors import DuplicateKeyError
 
-from dronefleet.db import db
-from dronefleet.state.idempotency import idempotency_key, canonical
+from droran.db import db
+from droran.state.idempotency import idempotency_key, canonical
 
 class TransientToolError(Exception):
     """Raised by tools to signal retry-eligible failures."""
@@ -358,7 +358,7 @@ def traceable_tool(
             })
             # If the tool registered a compensating action, push it onto the saga.
             if comp:
-                from dronefleet.state.saga import push_compensation
+                from droran.state.saga import push_compensation
                 await push_compensation(mission_id, comp, key)
             return result
 
@@ -372,10 +372,10 @@ def traceable_tool(
 ### 2.5 Using the decorator
 
 ```python
-# dronefleet/tools/dispatch.py
+# dronan/tools/dispatch.py
 from langchain_core.tools import tool
-from dronefleet.state.traceable import traceable_tool
-from dronefleet.tools.compensations import abort_drone
+from droran.state.traceable import traceable_tool
+from droran.tools.compensations import abort_drone
 
 @tool
 @traceable_tool(agent="dispatch", side_effect="write+external",
@@ -413,11 +413,11 @@ Raised as `PermanentToolError`. SupervisorAgent catches via the node
 wrapper, picks a fallback agent, and writes a lesson seed:
 
 ```python
-# dronefleet/agents/nodes/planner_node.py
-from dronefleet.state.traceable import PermanentToolError
-from dronefleet.tools.vrp import solve_vrp
-from dronefleet.tools.naive import naive_sequential_plan
-from dronefleet.db import db
+# dronan/agents/nodes/planner_node.py
+from droran.state.traceable import PermanentToolError
+from droran.tools.vrp import solve_vrp
+from droran.tools.naive import naive_sequential_plan
+from droran.db import db
 
 async def planner_node(state):
     args = build_vrp_args(state)
@@ -448,11 +448,11 @@ ReflectionAgent later consumes `lesson_seeds` and promotes them into
 Boot-time scan + resume:
 
 ```python
-# dronefleet/state/resume.py
+# dronan/state/resume.py
 from datetime import datetime, timedelta
-from dronefleet.db import db
-from dronefleet.agents.graph import compile_graph
-from dronefleet.state.checkpointer import thread_config
+from droran.db import db
+from droran.agents.graph import compile_graph
+from droran.state.checkpointer import thread_config
 
 NON_TERMINAL = {"planning", "in_progress", "paused"}
 
@@ -490,9 +490,9 @@ async def resume_in_flight_missions(mongo_uri: str, max_age_min: int = 60):
 Wire it into FastAPI startup:
 
 ```python
-# dronefleet/api/app.py
+# dronan/api/app.py
 from fastapi import FastAPI
-from dronefleet.state.resume import resume_in_flight_missions
+from droran.state.resume import resume_in_flight_missions
 
 app = FastAPI()
 
@@ -512,7 +512,7 @@ the API mid-mission, restarts it, and asserts the mission proceeds to
 ### 4.1 Mission state machine + atomic transitions
 
 ```python
-# dronefleet/state/mission_fsm.py
+# dronan/state/mission_fsm.py
 ALLOWED_TRANSITIONS = {
     "planning":    {"in_progress", "failed"},
     "in_progress": {"paused", "completed", "failed"},
@@ -548,10 +548,10 @@ async def transition(db, mission_id: str, new_status: str, *, reason: str = ""):
 ### 4.2 Compensating actions on the mission doc
 
 ```python
-# dronefleet/state/saga.py
+# dronan/state/saga.py
 from datetime import datetime
 from typing import Any
-from dronefleet.db import db
+from droran.db import db
 
 async def push_compensation(mission_id: str, comp: dict, idempotency_key: str):
     await db.missions.update_one(
@@ -609,12 +609,12 @@ class MissionSaga:
 ### 4.3 Worked example — Dispatch saga
 
 ```python
-# dronefleet/agents/nodes/dispatch_node.py
-from dronefleet.state.saga import MissionSaga
-from dronefleet.tools.dispatch import (
+# dronan/agents/nodes/dispatch_node.py
+from droran.state.saga import MissionSaga
+from droran.tools.dispatch import (
     arm_drone, start_cold_chain, append_audit, push_waypoints,
 )
-from dronefleet.tools.compensations import (
+from droran.tools.compensations import (
     disarm_drone, stop_cold_chain, redact_audit, clear_waypoints,
 )
 
@@ -649,7 +649,7 @@ returns the cached result or fails-fast.
 ### 5.2 Causal consistency → causal-consistent sessions
 
 ```python
-# dronefleet/state/sessions.py
+# dronan/state/sessions.py
 from contextlib import asynccontextmanager
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -709,11 +709,11 @@ await db.locks.create_index("expires_at", expireAfterSeconds=0)
 ### 6.2 Code
 
 ```python
-# dronefleet/state/locks.py
+# dronan/state/locks.py
 from __future__ import annotations
 import asyncio, uuid
 from datetime import datetime, timedelta
-from dronefleet.db import db
+from droran.db import db
 
 class LockBusy(Exception): ...
 
@@ -816,7 +816,7 @@ async with causal_session(client) as s, await s.start_transaction():
 ### 7.3 Dispatcher
 
 ```python
-# dronefleet/state/outbox.py
+# dronan/state/outbox.py
 async def run_dispatcher(ws_hub):
     pipeline = [{"$match": {
         "operationType": "insert",
@@ -872,7 +872,7 @@ every 30 s for the WS-down case.
 ### 8.2 Endpoint
 
 ```python
-# dronefleet/api/trace.py
+# dronan/api/trace.py
 from fastapi import APIRouter, HTTPException
 router = APIRouter()
 
@@ -991,7 +991,7 @@ Below is the cohesive `state/` package wiring (≥200 lines of real Python
 combining the snippets above into something you can drop into the repo).
 
 ```python
-# dronefleet/state/__init__.py
+# dronan/state/__init__.py
 from .checkpointer import build_checkpointer, thread_config
 from .traceable   import traceable_tool, TransientToolError, PermanentToolError, InFlightConflict
 from .idempotency import idempotency_key, canonical
@@ -1016,22 +1016,22 @@ __all__ = [
 ```
 
 ```python
-# dronefleet/state/boot.py — wire it all into FastAPI startup
+# dronan/state/boot.py — wire it all into FastAPI startup
 from __future__ import annotations
 import asyncio, logging
 from fastapi import FastAPI
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from dronefleet.config import MONGO_URI
-from dronefleet.state import (
+from droran.config import MONGO_URI
+from droran.state import (
     resume_in_flight_missions, run_dispatcher,
 )
-from dronefleet.ws.hub import ws_hub
-from dronefleet.agents.graph import compile_graph
-from dronefleet.agents.registry import register_all
-from dronefleet.tools.registry import register_all_tools
+from droran.ws.hub import ws_hub
+from droran.agents.graph import compile_graph
+from droran.agents.registry import register_all
+from droran.tools.registry import register_all_tools
 
-log = logging.getLogger("dronefleet.boot")
+log = logging.getLogger("droran.boot")
 
 def install_boot_hooks(app: FastAPI):
     background_tasks: list[asyncio.Task] = []
@@ -1043,7 +1043,7 @@ def install_boot_hooks(app: FastAPI):
                                     journal=True, retryWrites=True)
         await client.admin.command("ping")
         log.info("Mongo OK; ensuring indexes…")
-        from dronefleet.db.bootstrap import ensure_indexes
+        from droran.db.bootstrap import ensure_indexes
         await ensure_indexes(client)
 
         log.info("Registering agents and tools…")
@@ -1059,7 +1059,7 @@ def install_boot_hooks(app: FastAPI):
         log.info("Resuming any in-flight missions from checkpoint…")
         await resume_in_flight_missions(MONGO_URI)
 
-        log.info("DroneFleet boot complete.")
+        log.info("Droran boot complete.")
 
     @app.on_event("shutdown")
     async def _shutdown():
@@ -1069,7 +1069,7 @@ def install_boot_hooks(app: FastAPI):
 ```
 
 ```python
-# dronefleet/state/node_wrapper.py — inject __mission_id__ etc into tools
+# dronan/state/node_wrapper.py — inject __mission_id__ etc into tools
 from __future__ import annotations
 from functools import wraps
 from typing import Callable, Awaitable, Any
@@ -1099,7 +1099,7 @@ def with_tool_context(node_fn: Callable[..., Awaitable[Any]]):
 ```
 
 ```python
-# dronefleet/state/exceptions.py
+# dronan/state/exceptions.py
 class IllegalTransition(Exception): ...
 class NoCheckpointError(Exception): ...
 class CompensationFailed(Exception):
@@ -1116,7 +1116,7 @@ class CompensationFailed(Exception):
 * `pytest tests/recovery/test_recovery_resume.py::test_kill_resume`
 * `pytest tests/recovery/test_idempotency.py::test_duplicate_tool_call_runs_once`
 * `pytest tests/recovery/test_saga_rollback.py::test_infeasible_plan_rolls_back`
-* Manual: kill the `dronefleet.api` container during a live demo dispatch
+* Manual: kill the `droran.api` container during a live demo dispatch
   → mission resumes within ≤3 s after restart with no operator action.
 * Manual: drop the network for 5 s during external API calls → all
   affected tools succeed within their tenacity budget; no duplicate
