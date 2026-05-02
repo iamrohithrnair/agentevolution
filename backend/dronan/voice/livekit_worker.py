@@ -121,6 +121,11 @@ class MissionContext:
     barge_in_event: asyncio.Event = field(default_factory=asyncio.Event)
     last_user_utterance_at: float = 0.0
     session: Any = None  # AgentSession
+    # Strong refs to fire-and-forget tasks (e.g. signature capture launched
+    # from the data-channel callback). asyncio only weak-references tasks,
+    # so without holding them here the GC can collect a long-lived task
+    # mid-await. See https://docs.python.org/3/library/asyncio-task.html#creating-tasks
+    background_tasks: set[asyncio.Task[Any]] = field(default_factory=set)
 
     def trace_meta(self) -> dict[str, Any]:
         return {
@@ -520,7 +525,9 @@ async def agent_entrypoint(job: Any) -> None:
             session.stt = make_stt(ctx.language)
             session.tts = make_tts(ctx.language)
         if payload.get("capture_signature") and payload.get("delivery_id"):
-            asyncio.create_task(capture_signature(ctx, payload["delivery_id"]))
+            task = asyncio.create_task(capture_signature(ctx, payload["delivery_id"]))
+            ctx.background_tasks.add(task)
+            task.add_done_callback(ctx.background_tasks.discard)
 
     session.input.audio_enabled = mode == "always_on"
 
