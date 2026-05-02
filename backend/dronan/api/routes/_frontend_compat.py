@@ -223,59 +223,107 @@ async def logs_tool_calls(
     return [serialise(doc) async for doc in cursor]
 
 
+def _to_epoch_ms(value: Any) -> int:
+    if hasattr(value, "timestamp"):
+        return int(value.timestamp() * 1000)
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _agent_msg_to_envelope(doc: dict) -> dict:
+    """Shape an ``agent_messages`` / ``mission_memory`` doc into AgentMessage."""
+    return {
+        "id": str(doc.get("_id") or doc.get("id") or ""),
+        "ts": _to_epoch_ms(doc.get("ts") or doc.get("created_at")),
+        "kind": doc.get("kind") or "supervisor",
+        "mission_id": doc.get("mission_id"),
+        "operator_id": doc.get("operator_id"),
+        "agent": doc.get("agent"),
+        "text": doc.get("text") or doc.get("title") or "",
+        "meta": doc.get("meta") or {},
+    }
+
+
 @router.get("/agents/stream")
 async def agents_stream(
     request: Request,
-    kind: str = "all",
+    kind: str | None = None,
+    mission_id: str | None = None,
+    operator_id: str | None = None,
     db: Any = Depends(get_db),
 ) -> StreamingResponse:
-    """SSE stream of recent agent activity.
+    """SSE stream of ``AgentMessage`` events for the reasoning / reflections panels.
 
-    Tails ``mission_memory`` (filtered by ``kind`` when supplied) and
-    ``flight_logs`` and emits one SSE event per insert. Polling-based so
-    it works on engines without change streams (mongomock).
+    Tails ``agent_messages`` and ``mission_memory`` (kind='reflection') and
+    emits default-named ``message`` events so the browser's ``EventSource``
+    picks them up without listening for custom event names.
     """
 
-    def _sse(event: str, data: Any) -> bytes:
-        return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode("utf-8")
+    def _sse(data: Any) -> bytes:
+        # Default-name event (no 'event: ...' line) so EventSource 'message'
+        # listeners fire. Keeps payload matched to AgentMessage type.
+        return f"data: {json.dumps(data, default=str)}\n\n".encode("utf-8")
 
     async def gen():
-        yield _sse("ready", {"kind": kind})
+        # Replay recent messages so the UI has context on open.
+        backlog_q: dict = {}
+        if kind:
+            backlog_q["kind"] = kind
+        if mission_id:
+            backlog_q["mission_id"] = mission_id
+        if operator_id:
+            backlog_q["operator_id"] = operator_id
 
+        try:
+            # Agent messages backlog (last 30)
+            cursor = (
+                db.agent_messages.find(backlog_q).sort("ts", -1).limit(30)
+            )
+            backlog = [doc async for doc in cursor]
+            for doc in reversed(backlog):
+                yield _sse(_agent_msg_to_envelope(doc))
+
+            # Reflections backlog (if caller asked for them)
+            if not kind or kind == "reflection":
+                mem_q: dict = {"kind": "reflection"}
+                if mission_id:
+                    mem_q["source_id"] = mission_id
+                mem_cursor = (
+                    db.mission_memory.find(mem_q).sort("created_at", -1).limit(20)
+                )
+                mem_backlog = [doc async for doc in mem_cursor]
+                for doc in reversed(mem_backlog):
+                    yield _sse(_agent_msg_to_envelope(doc))
+        except Exception as exc:
+            log.warning("agents/stream backlog failed: %s", exc)
+
+        last_am = datetime.now(timezone.utc)
         last_mem = datetime.now(timezone.utc)
-        last_log = datetime.now(timezone.utc)
+
         try:
             while True:
                 if await request.is_disconnected():
                     break
-                # Pull new mission_memory cards
-                mem_q: dict = {"created_at": {"$gt": last_mem}}
-                if kind and kind != "all":
-                    mem_q["kind"] = kind
-                async for doc in db.mission_memory.find(mem_q).sort("created_at", 1).limit(20):
-                    last_mem = doc.get("created_at") or last_mem
-                    yield _sse(
-                        "memory",
-                        {
-                            "id": str(doc.get("_id")),
-                            "kind": doc.get("kind"),
-                            "title": doc.get("title"),
-                            "text": doc.get("text"),
-                        },
-                    )
-                # Pull new flight_logs
-                log_q: dict = {"ts": {"$gt": last_log}}
-                async for doc in db.flight_logs.find(log_q).sort("ts", 1).limit(20):
-                    last_log = doc.get("ts") or last_log
-                    yield _sse(
-                        "log",
-                        {
-                            "mission_id": doc.get("mission_id"),
-                            "drone_id": doc.get("drone_id"),
-                            "event": doc.get("event"),
-                            "ts": doc.get("ts"),
-                        },
-                    )
+                # Pull new agent_messages
+                am_q: dict = {"ts": {"$gt": last_am}}
+                if kind:
+                    am_q["kind"] = kind
+                if mission_id:
+                    am_q["mission_id"] = mission_id
+                if operator_id:
+                    am_q["operator_id"] = operator_id
+                async for doc in db.agent_messages.find(am_q).sort("ts", 1).limit(20):
+                    last_am = doc.get("ts") or last_am
+                    yield _sse(_agent_msg_to_envelope(doc))
+
+                # Pull new reflection cards
+                if not kind or kind == "reflection":
+                    mem_q = {"kind": "reflection", "created_at": {"$gt": last_mem}}
+                    if mission_id:
+                        mem_q["source_id"] = mission_id
+                    async for doc in db.mission_memory.find(mem_q).sort("created_at", 1).limit(20):
+                        last_mem = doc.get("created_at") or last_mem
+                        yield _sse(_agent_msg_to_envelope(doc))
+
                 await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             return
