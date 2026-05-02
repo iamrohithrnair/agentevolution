@@ -1,6 +1,6 @@
-# 12 · Acceptance Tests & Quality Gates — DroneFleet
+# 12 · Acceptance Tests & Quality Gates — Droran
 
-> **Audience:** every engineer writing code under `dronefleet/`. **Read this before opening a PR.**
+> **Audience:** every engineer writing code under `dronan/`. **Read this before opening a PR.**
 > **Companion files:** `00-overview.md` (rubric), `01-architecture.md` (topology), `02-mongodb-data-model.md` (collections + indexes), `04-langchain-agents.md` (graph nodes), `05-state-recovery.md` (saga + checkpointer), `03-mongodb-vector-rag.md` (adaptive RAG), `10-self-evolution.md` (reflection loop), `11-demo-script.md` (every claim below maps to an act).
 > **Mandate:** every wow hook in `11-demo-script.md` is gated by ≥ 1 test in this document. If it's not tested, it's not in the demo.
 
@@ -12,9 +12,9 @@ We use a **strict pyramid**: many fast unit tests, a tight band of integration t
 
 **Five non-negotiables:**
 
-1. **Real Atlas, not just mongomock.** Unit tests may use `mongomock-motor` for speed, but every test that touches `$vectorSearch`, `$search`, change streams, time-series, Queryable Encryption, or transactions runs against a real Atlas Sandbox cluster (`dronefleet_test` DB, scoped service account). Atlas Sandbox is the **eligibility-mandatory** substrate for the hackathon — losing parity with it loses the £15K.
+1. **Real Atlas, not just mongomock.** Unit tests may use `mongomock-motor` for speed, but every test that touches `$vectorSearch`, `$search`, change streams, time-series, Queryable Encryption, or transactions runs against a real Atlas Sandbox cluster (`droran_test` DB, scoped service account). Atlas Sandbox is the **eligibility-mandatory** substrate for the hackathon — losing parity with it loses the £15K.
 2. **Determinism.** All randomness is seeded (`PYTHONHASHSEED=0`, `random.seed(42)`, `numpy.random.seed(42)`). LLM calls in deterministic tests are replayed via `respx` cassettes captured from a one-time golden run; live LLM tests exist but are isolated under `pytest -m live_llm`.
-3. **State isolation.** Every test acquires a unique DB suffix (`dronefleet_test_{uuid}`) via the `mongo_db` fixture, runs against it, and the fixture drops it on teardown. Tests never share state.
+3. **State isolation.** Every test acquires a unique DB suffix (`droran_test_{uuid}`) via the `mongo_db` fixture, runs against it, and the fixture drops it on teardown. Tests never share state.
 4. **Trace assertions.** Every integration test asserts on LangSmith trace metadata via the `langsmith` SDK in addition to MongoDB state — this catches regressions where the right document is written but via the wrong reasoning path.
 5. **Demo parity.** The `tests/demo/` directory mirrors the five acts in `11-demo-script.md`. CI fails if any act test fails — no exceptions, no skips.
 
@@ -154,7 +154,7 @@ async def test_skill_router_picks_payload_agent(seeded_skills, voyage_client):
 
 ### 4.2 `test_checkpoint_resume.py` (integration, gates Act 3)
 
-**Arrange:** start a LangGraph mission graph wired to `MongoDBSaver(client, db_name="dronefleet_test_{uuid}", collection_name="langgraph_checkpoints")`. Drive the graph to the `replanner` node, then `await graph.ainvoke(...)` is **cancelled** mid-node via `asyncio.Task.cancel()` to simulate `kill -9`.
+**Arrange:** start a LangGraph mission graph wired to `MongoDBSaver(client, db_name="droran_test_{uuid}", collection_name="langgraph_checkpoints")`. Drive the graph to the `replanner` node, then `await graph.ainvoke(...)` is **cancelled** mid-node via `asyncio.Task.cancel()` to simulate `kill -9`.
 
 **Act:** create a new `StateGraph` instance from the same checkpointer with the same `thread_id`; call `await graph.ainvoke(None, config={"configurable": {"thread_id": MID}})` (None resumes).
 
@@ -285,7 +285,7 @@ Hammers `dispatch_drone(payload, idempotency_key=K)` 100× concurrently with the
 async def test_full_act1_under_60s(mongo_db, fastapi_client, livekit_room):
     t0 = time.perf_counter()
     await livekit_room.speak(
-        "DroneFleet — multi-vehicle accident, M25 junction 14, three priority casualties. "
+        "Droran — multi-vehicle accident, M25 junction 14, three priority casualties. "
         "Dispatch O-negative blood, two units of plasma, and a trauma kit. Cold chain critical. Go now."
     )
     mission = await wait_for_mission_status(mongo_db, status="dispatched", timeout=15)
@@ -360,7 +360,7 @@ jobs:
       matrix:
         python-version: ["3.12"]
     env:
-      MONGODB_URI: ${{ secrets.MONGODB_URI_TEST }}        # Atlas Sandbox cluster, dronefleet_test_* DBs
+      MONGODB_URI: ${{ secrets.MONGODB_URI_TEST }}        # Atlas Sandbox cluster, droran_test_* DBs
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
       LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
@@ -369,7 +369,7 @@ jobs:
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_PROJECT: dronefleet-ci
+      LANGSMITH_PROJECT: droran-ci
       PYTHONHASHSEED: "0"
     steps:
       - uses: actions/checkout@v4
@@ -383,9 +383,9 @@ jobs:
       - name: Lint
         run: uv run ruff check . && uv run ruff format --check .
       - name: Type check
-        run: uv run mypy dronefleet
+        run: uv run mypy droran
       - name: Unit tests
-        run: uv run pytest tests/unit -n auto -q --cov=dronefleet --cov-report=xml
+        run: uv run pytest tests/unit -n auto -q --cov=droran --cov-report=xml
       - name: Integration tests (real Atlas)
         run: uv run pytest tests/integration --timeout=120
       - name: E2E (Playwright)
@@ -401,7 +401,7 @@ jobs:
           files: coverage.xml
 ```
 
-The Atlas `dronefleet_test` DB is namespaced per-job via `dronefleet_test_${{ github.run_id }}_${{ github.run_attempt }}` and dropped in a `post:` step. Vector indexes are pre-provisioned on the cluster (creating them per-job exceeds Sandbox quota).
+The Atlas `droran_test` DB is namespaced per-job via `droran_test_${{ github.run_id }}_${{ github.run_attempt }}` and dropped in a `post:` step. Vector indexes are pre-provisioned on the cluster (creating them per-job exceeds Sandbox quota).
 
 ---
 
@@ -432,7 +432,7 @@ async def main():
     await c.admin.command('ping')
     rtt = (time.perf_counter() - t) * 1000
     if rtt > 200: sys.exit(f'Mongo ping {rtt:.0f}ms exceeds 200ms')
-    db = c.dronefleet_demo
+    db = c.droran_demo
     skills = await db.agent_skills.count_documents({})
     if skills != 17: sys.exit(f'agent_skills has {skills} cards (expected 17)')
     regs = await db.regulations.count_documents({})
@@ -446,10 +446,10 @@ asyncio.run(main())
 " || fail "Atlas pre-flight failed (see message above)"
 ok "Atlas pre-flight"
 
-uv run python -m dronefleet.scripts.check_voyage   || fail "Voyage AI quota/keys"
-uv run python -m dronefleet.scripts.check_livekit  || fail "LiveKit token mint failed"
-uv run python -m dronefleet.scripts.check_11labs   || fail "ElevenLabs voice 'Aria-medical-v3' unavailable"
-uv run python -m dronefleet.scripts.check_deepgram || fail "Deepgram Nova-3 stream failed"
+uv run python -m droran.scripts.check_voyage   || fail "Voyage AI quota/keys"
+uv run python -m droran.scripts.check_livekit  || fail "LiveKit token mint failed"
+uv run python -m droran.scripts.check_11labs   || fail "ElevenLabs voice 'Aria-medical-v3' unavailable"
+uv run python -m droran.scripts.check_deepgram || fail "Deepgram Nova-3 stream failed"
 ok "external services"
 
 uv run pytest tests/demo/test_demo_smoke.py -q --tb=line || fail "Act 1 smoke test failed"
@@ -465,12 +465,12 @@ echo "🟢  ALL GREEN — demo cluster is ready."
 ### Eligibility & substrate
 
 - [ ] MongoDB Atlas Sandbox cluster provisioned, connection string committed only to GitHub Encrypted Secrets.
-- [ ] All 16 collections from `02-mongodb-data-model.md` exist in `dronefleet_demo` and `dronefleet_test`.
+- [ ] All 16 collections from `02-mongodb-data-model.md` exist in `droran_demo` and `droran_test`.
 - [ ] All 8 Atlas Vector Search indexes are `READY` and listed in `infra/atlas_indexes.json`.
 - [ ] All 4 Atlas Search (BM25) indexes are `READY`.
 - [ ] Time-series collections (`telemetry`, `weather_observations`, `synthetic_emergencies`) created with `timeseries: { timeField, metaField, granularity }`.
 - [ ] Queryable Encryption configured on `audit_trail.recipient_pii`.
-- [ ] Change streams subscribed by `dronefleet/api/ws.py` for the dashboard.
+- [ ] Change streams subscribed by `dronan/api/ws.py` for the dashboard.
 
 ### Agents & graph (`04-langchain-agents.md`)
 
@@ -532,7 +532,7 @@ echo "🟢  ALL GREEN — demo cluster is ready."
 
 ### Observability & ops
 
-- [ ] LangSmith project `dronefleet-demo` receives traces with `mission_id` tag.
+- [ ] LangSmith project `droran-demo` receives traces with `mission_id` tag.
 - [ ] `traces` Mongo collection mirrors LangSmith spans for offline replay.
 - [ ] Smoke script `scripts/smoke.sh` exits 0 in < 90 s.
 - [ ] CI badge on README is green; `uv run pytest` passes locally on macOS + Linux.

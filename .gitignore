@@ -1,5 +1,7 @@
 DroneFleet/
 GenAI-Showcase/
+remix-cinematic-drone-launch-e/
+.kilocode/
 
 # --- Environment & secrets (never commit) ---
 .env

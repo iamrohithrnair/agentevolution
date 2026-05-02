@@ -1,6 +1,6 @@
 # 08 · Frontend — Next.js 15 + React 19 + Tailwind v4 + shadcn/ui
 
-> **Scope.** Production-grade, demo-ready operator console for DroneFleet. Light-mode only, hospital-clean visual language. Streams from FastAPI (file 07), holds a LiveKit room (file 06), surfaces live MongoDB Change Streams.
+> **Scope.** Production-grade, demo-ready operator console for Droran. Light-mode only, hospital-clean visual language. Streams from FastAPI (file 07), holds a LiveKit room (file 06), surfaces live MongoDB Change Streams.
 >
 > **Cross-references.**
 > - HTTP/WS/SSE contracts: [`07-backend-fastapi.md`](./07-backend-fastapi.md).
@@ -779,7 +779,7 @@ import clientPromise from "./mongo-client";
 import { sign } from "jsonwebtoken";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: MongoDBAdapter(clientPromise, { databaseName: "dronefleet" }),
+  adapter: MongoDBAdapter(clientPromise, { databaseName: "droran" }),
   session: { strategy: "jwt" },
   providers: [
     EmailProvider({ server: process.env.EMAIL_SERVER!, from: process.env.EMAIL_FROM! }),
@@ -891,7 +891,7 @@ NEXT_PUBLIC_LIVEKIT_URL=wss://your-project.livekit.cloud
 JWT_SECRET=<same as backend JWT_SECRET>
 NEXTAUTH_SECRET=<random>
 EMAIL_SERVER=smtp://...
-EMAIL_FROM=ops@dronefleet.dev
+EMAIL_FROM=ops@droran.dev
 MONGODB_URI=mongodb+srv://...
 ```
 

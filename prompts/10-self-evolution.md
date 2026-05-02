@@ -1,5 +1,5 @@
 # 10 · Self-Evolution Loop Spec
-**DroneFleet · MongoDB Agentic Evolution Hackathon**
+**Droran · MongoDB Agentic Evolution Hackathon**
 
 > Cross-references: `02-mongodb-data-model.md`, `04-langchain-agents.md`,
 > `05-state-recovery.md`, `06-skills-discovery.md`, `08-evaluation.md`,
@@ -49,7 +49,7 @@ generated overnight by `DemandForecastAgent` (§10).
 ### 1.3 Output — `Reflection` Pydantic
 
 ```python
-# dronefleet/agents/reflection_models.py
+# dronan/agents/reflection_models.py
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -145,15 +145,15 @@ lessons measurably improve. Useless lessons get demoted (usefulness_score
 ### 1.5 The node implementation
 
 ```python
-# dronefleet/agents/nodes/reflection_node.py
+# dronan/agents/nodes/reflection_node.py
 import hmac, hashlib, json
 from datetime import datetime
-from dronefleet.agents.reflection_models import Reflection
-from dronefleet.embed import voyage_embed
-from dronefleet.db import db
-from dronefleet.config import REFLECTION_HMAC_KEY
+from droran.agents.reflection_models import Reflection
+from droran.embed import voyage_embed
+from droran.db import db
+from droran.config import REFLECTION_HMAC_KEY
 
-REFL_SYSTEM = open("dronefleet/agents/prompts/reflection.txt").read()
+REFL_SYSTEM = open("dronan/agents/prompts/reflection.txt").read()
 
 async def reflection_node(state):
     mid = state["mission_id"]
@@ -198,10 +198,10 @@ Each lesson becomes a `mission_memory` doc — schema in §3.
 ## 3 · Embedding & Writing Lessons
 
 ```python
-# dronefleet/agents/persist.py
+# dronan/agents/persist.py
 from datetime import datetime
-from dronefleet.embed import voyage_embed
-from dronefleet.db import db
+from droran.embed import voyage_embed
+from droran.db import db
 
 EPOCH = datetime(1970, 1, 1)
 def recency_bucket(d: datetime) -> int:
@@ -282,7 +282,7 @@ positively, and updates its `usefulness_score`.
 ### 4.1 Retrieval increments
 
 ```python
-# dronefleet/memory/lessons.py
+# dronan/memory/lessons.py
 async def retrieve_lessons_for_planner(query: str, region: str | None,
                                        weather_class: str | None,
                                        k: int = 5) -> list[dict]:
@@ -318,7 +318,7 @@ async def retrieve_lessons_for_planner(query: str, region: str | None,
 EWMA on a 0–1 scale:
 
 ```python
-# dronefleet/agents/feedback.py
+# dronan/agents/feedback.py
 ALPHA = 0.3
 
 async def update_lesson_usefulness(mission_id: str, success: bool):
@@ -351,14 +351,14 @@ async def demote_useless_lessons():
     )
 ```
 
-Run this nightly (Mongo `cron` or APScheduler in `dronefleet.jobs`).
+Run this nightly (Mongo `cron` or APScheduler in `droran.jobs`).
 
 ---
 
 ## 5 · Skill Score Updates (EWMA)
 
 ```python
-# dronefleet/agents/skill_scoring.py
+# dronan/agents/skill_scoring.py
 from datetime import datetime
 EWMA_ALPHA = 0.25
 
@@ -407,9 +407,9 @@ import asyncio, json, statistics, time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
-from dronefleet.agents.graph import compile_graph
-from dronefleet.state.checkpointer import thread_config
-from dronefleet.config import MONGO_URI
+from droran.agents.graph import compile_graph
+from droran.state.checkpointer import thread_config
+from droran.config import MONGO_URI
 
 @dataclass
 class TakeResult:
@@ -423,8 +423,8 @@ class TakeResult:
     lessons_used: int
 
 async def reset_memory(client):
-    await client.dronefleet.mission_memory.delete_many({})
-    await client.dronefleet.lesson_seeds.delete_many({})
+    await client.droran.mission_memory.delete_many({})
+    await client.droran.lesson_seeds.delete_many({})
 
 async def run_scenario_once(scenario: dict, take_n: int, graph) -> TakeResult:
     mission_id = f"eval-{scenario['id']}-take{take_n}-{int(time.time())}"
@@ -439,7 +439,7 @@ async def run_scenario_once(scenario: dict, take_n: int, graph) -> TakeResult:
     t1 = time.perf_counter()
 
     # Pull metrics out of Mongo.
-    db = graph.checkpointer.client.dronefleet
+    db = graph.checkpointer.client.droran
     mission = await db.missions.find_one({"_id": mission_id})
     rerouts = await db.agent_messages.count_documents(
         {"mission_id": mission_id, "from_agent": "replanner"},
@@ -473,7 +473,7 @@ async def run_with_memory(scenario: dict, n: int) -> list[TakeResult]:
         r = await run_scenario_once(scenario, take_n=i, graph=graph)
         results.append(r)
         # Persist eval row.
-        await client.dronefleet.reflection_eval.insert_one(asdict(r))
+        await client.droran.reflection_eval.insert_one(asdict(r))
     return results
 
 async def run_without_memory(scenario: dict, n: int) -> list[TakeResult]:
@@ -538,9 +538,9 @@ watch lessons appear during the demo.
 ### 7.1 Server side
 
 ```python
-# dronefleet/api/reflection_feed.py
+# dronan/api/reflection_feed.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from dronefleet.db import db
+from droran.db import db
 import asyncio, json
 router = APIRouter()
 
@@ -584,7 +584,7 @@ only when ≥2 corroborating lessons exist** (anti-overfitting).
 ### 8.1 Prompt template
 
 ```jinja
-{# dronefleet/agents/prompts/planner.j2 #}
+{# dronan/agents/prompts/planner.j2 #}
 You are the Planner. Your combinatorial work is delegated to solve_vrp.
 You decide heuristic, weights, and excluded_legs.
 
@@ -620,7 +620,7 @@ Output strict JSON: {"heuristic": ..., "weights": {...}, "excluded_legs": [...]}
 ### 8.2 Hard-block corroboration logic
 
 ```python
-# dronefleet/memory/hard_blocks.py
+# dronan/memory/hard_blocks.py
 async def hard_block_corridors_for(region: str) -> list[str]:
     pipeline = [
         {"$match": {
@@ -655,7 +655,7 @@ Already enforced by §8.2 (`n >= 2`).
 discover when an obsolete lesson should be demoted faster).
 
 ```python
-# dronefleet/jobs/exploration_scheduler.py
+# dronan/jobs/exploration_scheduler.py
 import random
 EXPLORATION_RATE = 0.1
 
@@ -715,10 +715,10 @@ mission identically, growing the lesson base without real flights.
 ### 10.1 Pseudo-code
 
 ```python
-# dronefleet/agents/nodes/demand_forecast_node.py
-from dronefleet.agents.graph import compile_graph
-from dronefleet.state.checkpointer import thread_config
-from dronefleet.synthetic.distributions import sample_emergency
+# dronan/agents/nodes/demand_forecast_node.py
+from droran.agents.graph import compile_graph
+from droran.state.checkpointer import thread_config
+from droran.synthetic.distributions import sample_emergency
 
 async def overnight_curriculum(n: int = 200):
     graph = compile_graph(MONGO_URI)
@@ -744,7 +744,7 @@ prompt clamps `delta` for synthetic missions to `[-0.05, +0.05]`).
 
 ### 10.2 Schedule
 
-A nightly cron in `dronefleet.jobs.scheduler` invokes
+A nightly cron in `droran.jobs.scheduler` invokes
 `overnight_curriculum(200)` between 02:00 and 04:00 local time. The job is
 itself a LangGraph thread (`thread_id="curriculum-YYYY-MM-DD"`), so a
 process restart resumes from the last completed scenario.

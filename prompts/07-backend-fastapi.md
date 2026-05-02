@@ -1,6 +1,6 @@
 # 07 · Backend — FastAPI + Motor + Change Streams + Atlas Triggers
 
-> **Scope.** End-to-end blueprint for the DroneFleet HTTP/WS/SSE backend. Async-first, Mongo-native, agent-aware. Every route, every middleware, every collection touched, every failure mode.
+> **Scope.** End-to-end blueprint for the Droran HTTP/WS/SSE backend. Async-first, Mongo-native, agent-aware. Every route, every middleware, every collection touched, every failure mode.
 >
 > **Cross-references.**
 > - Mongo collections defined in [`02-mongodb-data-model.md`](./02-mongodb-data-model.md).
@@ -25,7 +25,7 @@
 ## 1 · Folder layout
 
 ```
-src/dronefleet/
+src/dronan/
 ├── api/
 │   ├── __init__.py
 │   ├── main.py                 # FastAPI app factory + lifespan
@@ -71,7 +71,7 @@ src/dronefleet/
 ## 2 · App skeleton — `api/main.py`
 
 ```python
-# src/dronefleet/api/main.py
+# src/dronan/api/main.py
 from __future__ import annotations
 import asyncio, logging, os
 from contextlib import asynccontextmanager
@@ -80,21 +80,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from dronefleet.config import settings
-from dronefleet.graph import build_supervisor
-from dronefleet.change_streams import ChangeStreamHub
-from dronefleet.outbox import OutboxDispatcher
-from dronefleet.api.middleware.trace import TraceMiddleware
-from dronefleet.api.middleware.idempotency import IdempotencyMiddleware
-from dronefleet.api.middleware.ratelimit import RateLimitMiddleware
-from dronefleet.api.routes import (
+from droran.config import settings
+from droran.graph import build_supervisor
+from droran.change_streams import ChangeStreamHub
+from droran.outbox import OutboxDispatcher
+from droran.api.middleware.trace import TraceMiddleware
+from droran.api.middleware.idempotency import IdempotencyMiddleware
+from droran.api.middleware.ratelimit import RateLimitMiddleware
+from droran.api.routes import (
     chat, missions, drones, facilities, nofly, weather, payload, risk,
     preflight, delivery, reports, livekit_token, memory, skills, internal,
     admin, health,
 )
-from dronefleet.api import ws, sse
+from droran.api import ws, sse
 
-log = logging.getLogger("dronefleet.api")
+log = logging.getLogger("droran.api")
 
 
 @asynccontextmanager
@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
     await db.command("ping")
 
     # ---- Voyage embeddings client
-    from dronefleet.embeddings import VoyageClient
+    from droran.embeddings import VoyageClient
     voyage = VoyageClient(api_key=settings.VOYAGE_API_KEY,
                           model=settings.EMBED_MODEL)
 
@@ -119,7 +119,7 @@ async def lifespan(app: FastAPI):
     await outbox.start()
 
     # ---- Resume any in-flight missions whose worker died mid-flight
-    from dronefleet.scheduler import resume_active_missions
+    from droran.scheduler import resume_active_missions
     resume_task = asyncio.create_task(resume_active_missions(db, supervisor),
                                       name="resume_active_missions")
 
@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
     app.state.hub = hub
     app.state.outbox = outbox
 
-    log.info("dronefleet.api ready")
+    log.info("droran.api ready")
     try:
         yield
     finally:
@@ -143,7 +143,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="DroneFleet API",
+        title="Droran API",
         version="2.0",
         lifespan=lifespan,
         default_response_class=JSONResponse,
@@ -182,11 +182,11 @@ app = create_app()
 ### 2.1 `api/deps.py`
 
 ```python
-# src/dronefleet/api/deps.py
+# src/dronan/api/deps.py
 from fastapi import Depends, Header, HTTPException, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from dronefleet.auth import verify_jwt
-from dronefleet.models.user import User
+from droran.auth import verify_jwt
+from droran.models.user import User
 
 
 def get_db(request: Request) -> AsyncIOMotorDatabase:
@@ -245,9 +245,9 @@ Collections: `agent_messages`, `traces`. Indirectly anything the supervisor touc
 import json
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from dronefleet.api.deps import current_user, get_db, get_supervisor
-from dronefleet.tracing import open_span
-from dronefleet.models.chat import ChatRequest
+from droran.api.deps import current_user, get_db, get_supervisor
+from droran.tracing import open_span
+from droran.models.chat import ChatRequest
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -682,7 +682,7 @@ async def health(request: Request):
 One process-wide hub. Key idea: open at most one `watch()` per `(collection, hash(filter))`; multiplex consumers via `asyncio.Queue` references. On reconnect, resume from the last known token; on token loss, restart from `now`.
 
 ```python
-# src/dronefleet/change_streams.py
+# src/dronan/change_streams.py
 from __future__ import annotations
 import asyncio, hashlib, json, logging
 from collections import defaultdict
@@ -691,7 +691,7 @@ from typing import Any, Iterable
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-log = logging.getLogger("dronefleet.changestreams")
+log = logging.getLogger("droran.changestreams")
 
 
 def _filter_key(coll: str, flt: dict[str, Any]) -> str:
@@ -782,11 +782,11 @@ class ChangeStreamHub:
 For business events (mission_created, mission_updated, delivery_confirmed) we *do not* rely on the consumer being subscribed at insert time. We write `outbox` rows with `{topic, payload, created_at, delivered_to:[], attempt:0}`. The dispatcher tails `outbox`, fans out to subscribers, and removes the row when **all** known subscribers have acked.
 
 ```python
-# src/dronefleet/outbox.py
+# src/dronan/outbox.py
 import asyncio, time
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from dronefleet.change_streams import ChangeStreamHub
+from droran.change_streams import ChangeStreamHub
 
 
 class OutboxDispatcher:
@@ -841,7 +841,7 @@ Routes that need to fan out simply call `await app.state.outbox.emit("mission.up
 
 ## 6 · Atlas Trigger function — `triggers/weather_reroute.js`
 
-Configure as a **Database Trigger** on `dronefleet.weather_observations`, on `insert`, full document. The function POSTs to `/api/internal/reroute-trigger` with an HMAC.
+Configure as a **Database Trigger** on `droran.weather_observations`, on `insert`, full document. The function POSTs to `/api/internal/reroute-trigger` with an HMAC.
 
 ```javascript
 // triggers/weather_reroute.js
@@ -850,8 +850,8 @@ exports = async function(changeEvent) {
   if (!doc || doc.flyable !== false) return { skipped: true };
 
   // Find affected in-transit missions whose route passes near this location
-  const missions = context.services.get("mongodb-atlas").db("dronefleet").collection("missions");
-  const facilities = context.services.get("mongodb-atlas").db("dronefleet").collection("facilities");
+  const missions = context.services.get("mongodb-atlas").db("droran").collection("missions");
+  const facilities = context.services.get("mongodb-atlas").db("droran").collection("facilities");
 
   const loc = await facilities.findOne({ _id: doc.location_id });
   if (!loc) return { skipped: "no facility" };
@@ -914,7 +914,7 @@ Backend verification middleware (`middleware/hmac_service.py`):
 import hmac, hashlib, time
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
-from dronefleet.config import settings
+from droran.config import settings
 
 
 class HMACServiceAuth(BaseHTTPMiddleware):
@@ -946,7 +946,7 @@ class HMACServiceAuth(BaseHTTPMiddleware):
 # auth.py
 import jwt
 from fastapi import HTTPException, status
-from dronefleet.config import settings
+from droran.config import settings
 
 ALGS = ["HS256"]
 
@@ -1126,7 +1126,7 @@ async def resume_active_missions(db, supervisor):
     async for m in cursor:
         # spawn the per-mission live loop (vision/anomaly/decon polling); see
         # 04-langchain-agents.md §7 for the exact StateGraph entry point
-        from dronefleet.simulator.runtime import attach_runtime
+        from droran.simulator.runtime import attach_runtime
         asyncio.create_task(attach_runtime(db, supervisor, m), name=f"mission:{m['_id']}")
 ```
 
@@ -1137,7 +1137,7 @@ async def resume_active_missions(db, supervisor):
 Local:
 
 ```bash
-uv run uvicorn dronefleet.api.main:app \
+uv run uvicorn droran.api.main:app \
     --reload --reload-dir src \
     --host 0.0.0.0 --port 8000 \
     --log-level info
@@ -1146,7 +1146,7 @@ uv run uvicorn dronefleet.api.main:app \
 Production:
 
 ```bash
-uv run uvicorn dronefleet.api.main:app \
+uv run uvicorn droran.api.main:app \
     --host 0.0.0.0 --port 8000 \
     --workers 1 \                # IMPORTANT: 1 worker; multiple workers mean multiple change-stream cursors
     --proxy-headers --forwarded-allow-ips='*' \
@@ -1186,7 +1186,7 @@ Covers:
 
 You are done with the backend when:
 
-1. `uv run uvicorn dronefleet.api.main:app` boots cleanly with all subsystems green.
+1. `uv run uvicorn droran.api.main:app` boots cleanly with all subsystems green.
 2. All routes in §3 return their documented schemas.
 3. The Change Stream + outbox path is end-to-end: a route POST → outbox emit → WS client receives within 200 ms.
 4. The Atlas Trigger fires in dev via `mongocli` or a local replay, and `/api/internal/reroute-trigger` causes a reroute on a live mission.
