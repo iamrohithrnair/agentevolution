@@ -340,6 +340,7 @@ class AgentSkill(MongoModel):
     agent: str
     capability_text: str
     embedding: list[float]
+    embedding_model: str = "voyage-3-large"
     tools: list[ToolSpec] = Field(default_factory=list)
     cost_estimate_gbp_per_call: float = 0.0
     avg_latency_ms: float = 0.0

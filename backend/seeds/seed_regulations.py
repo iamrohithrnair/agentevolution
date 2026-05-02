@@ -20,9 +20,9 @@ from backend.dronan.bootstrap import (
     REG_VALIDATOR,
     apply_validator,
 )
-from backend.dronan.config import settings
+from backend.dronan.config import get_settings
 
-from ._common import bulk_upsert, deterministic_embedding, run, sha256_text, utcnow
+from ._common import bulk_upsert, deterministic_embedding, run, utcnow
 
 PROFILES: list[dict[str, Any]] = [
     {
@@ -158,8 +158,7 @@ async def main(db: AsyncIOMotorDatabase) -> dict[str, int]:
 
         for heading, body in _chunk_markdown(profile["notes_md"]):
             text = f"{profile['title']} — {heading}\n\n{body}"
-            embedding = deterministic_embedding(text, dim=settings.voyage_dim)
-            digest = sha256_text(text)
+            embedding = deterministic_embedding(text, dim=get_settings().voyage_dim)
             mem_doc = {
                 "kind": "regulation",
                 "title": f"{profile['title']} — {heading}",
@@ -179,7 +178,7 @@ async def main(db: AsyncIOMotorDatabase) -> dict[str, int]:
             mem_ops.append(
                 UpdateOne(
                     {"source_collection": "regulations", "source_id": profile["code"], "title": mem_doc["title"]},
-                    {"$set": {**mem_doc, "_digest": digest}},
+                    {"$set": mem_doc},
                     upsert=True,
                 )
             )

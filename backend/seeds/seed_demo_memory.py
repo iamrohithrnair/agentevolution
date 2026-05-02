@@ -11,9 +11,9 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import UpdateOne
 
 from backend.dronan.bootstrap import MEMORY_VALIDATOR, apply_validator
-from backend.dronan.config import settings
+from backend.dronan.config import get_settings
 
-from ._common import bulk_upsert, deterministic_embedding, run, sha256_text, utcnow
+from ._common import bulk_upsert, deterministic_embedding, run, utcnow
 
 
 CARDS: list[dict[str, Any]] = [
@@ -94,8 +94,7 @@ async def main(db: AsyncIOMotorDatabase) -> dict[str, int]:
 
     ops: list[UpdateOne] = []
     for card in CARDS:
-        embedding = deterministic_embedding(card["text"], dim=settings.voyage_dim)
-        digest = sha256_text(card["text"])
+        embedding = deterministic_embedding(card["text"], dim=get_settings().voyage_dim)
         doc = {
             "kind": "reflection",
             "title": card["title"],
@@ -108,7 +107,6 @@ async def main(db: AsyncIOMotorDatabase) -> dict[str, int]:
             "created_at": utcnow(),
             "use_count": 0,
             "score_ema": 0.0,
-            "_digest": digest,
         }
         ops.append(
             UpdateOne(

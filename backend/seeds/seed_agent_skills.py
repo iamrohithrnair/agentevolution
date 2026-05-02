@@ -12,7 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import UpdateOne
 
 from backend.dronan.bootstrap import SKILL_VALIDATOR, apply_validator
-from backend.dronan.config import settings
+from backend.dronan.config import get_settings
 
 from ._common import bulk_upsert, deterministic_embedding, run, utcnow
 
@@ -178,7 +178,7 @@ async def main(db: AsyncIOMotorDatabase) -> dict[str, int]:
 
     ops: list[UpdateOne] = []
     for s in SKILLS:
-        embedding = deterministic_embedding(s["capability_text"], dim=settings.voyage_dim)
+        embedding = deterministic_embedding(s["capability_text"], dim=get_settings().voyage_dim)
         doc = {
             **s,
             "embedding": embedding,

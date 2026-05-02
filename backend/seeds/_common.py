@@ -18,8 +18,8 @@ from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
-from backend.dronan.config import settings
-from backend.dronan.db import make_async_client
+from backend.dronan.config import get_settings
+from backend.dronan.db import get_motor_client
 
 _M_PER_DEG_LAT = 111_320
 _M_PER_DEG_LON_AT_EQUATOR = 111_320
@@ -65,7 +65,7 @@ def deterministic_embedding(text: str, dim: int = 1024) -> list[float]:
 # ---------------------------------------------------------------------------
 def _can_reach_real_atlas() -> bool:
     """True only when ``MONGODB_URI`` is set to a non-localhost URI."""
-    uri = settings.mongodb_uri
+    uri = get_settings().mongodb_uri
     if not uri:
         return False
     if uri.startswith(("mongodb://localhost", "mongodb://127.0.0.1")):
@@ -77,8 +77,9 @@ async def _open_client() -> tuple[AsyncIOMotorClient, AsyncIOMotorDatabase]:
     """Return (client, db). Falls back to mongomock when Atlas isn't reachable
     and the env var ``DRONAN_SEED_REQUIRE_ATLAS`` is unset.
     """
+    settings = get_settings()
     if _can_reach_real_atlas() or os.environ.get("DRONAN_SEED_REQUIRE_ATLAS"):
-        client = make_async_client()
+        client = get_motor_client()
         return client, client[settings.mongodb_db]
 
     # Offline fallback for local development / CI.
@@ -103,7 +104,7 @@ def run(seed_main: Callable[[AsyncIOMotorDatabase], Awaitable[object]]) -> None:
             from mongomock_motor import AsyncMongoMockClient
 
             client = AsyncMongoMockClient()
-            db = client[settings.mongodb_db]
+            db = client[get_settings().mongodb_db]
             await seed_main(db)
             client.close()
             return
