@@ -322,6 +322,64 @@ export default function MapView({
           );
         })}
 
+        {/* Projected remaining route — from drone's current position through
+            the waypoints it has yet to reach. */}
+        {Object.values(missions)
+          .filter(
+            (m) =>
+              m.status !== "completed" &&
+              m.status !== "aborted" &&
+              (m.route?.length ?? 0) >= 2,
+          )
+          .map((m) => {
+            const drone = drones[m.drone_id];
+            if (!drone || !MOVING_STATUSES.has(drone.status)) return null;
+            const waypoints = m.route
+              .map((w) => w.position)
+              .filter((p) => Array.isArray(p) && p.length === 2 && (p[0] !== 0 || p[1] !== 0));
+            if (waypoints.length < 2) return null;
+
+            // Find the next waypoint ahead of the drone by picking the one
+            // with the smallest cumulative distance gain after the drone.
+            const [dx, dy] = drone.position;
+            let bestIdx = 0;
+            let bestDist = Infinity;
+            for (let i = 0; i < waypoints.length; i++) {
+              const [wx, wy] = waypoints[i]!;
+              const d = (wx - dx) ** 2 + (wy - dy) ** 2;
+              if (d < bestDist) {
+                bestDist = d;
+                bestIdx = i;
+              }
+            }
+            // "Ahead" = everything from the nearest waypoint onwards, skipping
+            // it if we're already very close (avoids a sub-pixel projection).
+            const upcoming = waypoints.slice(bestIdx);
+            if (upcoming.length === 0) return null;
+            const projected: Array<[number, number]> = [
+              drone.position,
+              ...upcoming,
+            ];
+            if (projected.length < 2) return null;
+            return (
+              <Polyline
+                key={`proj-${m.id}`}
+                positions={projected.map(([lon, lat]) => [lat, lon] as [number, number])}
+                pathOptions={{
+                  color: "var(--color-accent-2)",
+                  weight: 3,
+                  opacity: 0.9,
+                  dashArray: "2 6",
+                }}
+              >
+                <LeafletTooltip sticky>
+                  <strong>{m.id}</strong> · projected · {upcoming.length} waypoint
+                  {upcoming.length === 1 ? "" : "s"} remaining
+                </LeafletTooltip>
+              </Polyline>
+            );
+          })}
+
         {droneList.map((d) => (
           <Marker
             key={d.id}
