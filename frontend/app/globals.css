@@ -1,21 +1,124 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ──────────────────────────────────────────────────────────────────────────
+   Dronan light-mode design tokens (Phase 5 · plan §7)
+   ────────────────────────────────────────────────────────────────────────── */
+@theme {
+  /* surfaces */
+  --color-canvas:        #FAFAFA;
+  --color-bg:            #FFFFFF;
+  --color-surface:       #FFFFFF;
+  --color-surface-2:     #F5F7FA;
+  --color-elevated:      #FFFFFF;
+
+  /* foreground */
+  --color-fg:            #0F172A;
+  --color-fg-muted:      #475569;
+  --color-fg-subtle:     #94A3B8;
+  --color-fg-inverse:    #FFFFFF;
+
+  /* borders */
+  --color-border:        #E2E8F0;
+  --color-border-strong: #CBD5E1;
+
+  /* accent (indigo) */
+  --color-accent:        #4F46E5;
+  --color-accent-2:      #6366F1;
+  --color-accent-soft:   #EEF2FF;
+  --color-accent-fg:     #312E81;
+
+  /* semantic */
+  --color-success:       #10B981;
+  --color-success-soft:  #ECFDF5;
+  --color-warning:       #D97706;
+  --color-warning-soft:  #FFFBEB;
+  --color-danger:        #DC2626;
+  --color-danger-soft:   #FEF2F2;
+  --color-info:          #0284C7;
+  --color-info-soft:     #F0F9FF;
+  --color-medical:       #DC2626;
+
+  /* typography */
+  --font-sans: var(--font-geist-sans), "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), "JetBrains Mono", ui-monospace, monospace;
+
+  /* radii */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.25rem;
+  --radius-pill: 999px;
+
+  /* elevation */
+  --shadow-1: 0 1px 1px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-2: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --shadow-3: 0 4px 8px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.08);
+  --shadow-focus: 0 0 0 3px rgba(79, 70, 229, 0.20);
+
+  /* motion */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-quick: 120ms;
+  --duration-base: 220ms;
+  --duration-slow: 380ms;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html, body {
+    background: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    letter-spacing: -0.011em;
+  }
+  *:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+    border-radius: var(--radius-sm);
+  }
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-fg);
+  }
+  hr { border-color: var(--color-border); }
+
+  /* Leaflet map z-index needs to live below our sticky topbar */
+  .leaflet-container { z-index: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+/* Subtle scrollbars in scrollable surfaces */
+.thin-scrollbar { scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; }
+.thin-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-pill);
+}
+
+/* Utility for Reduced-motion-safe ambient pulse */
+@keyframes dronan-pulse {
+  0%, 100% { opacity: 0.95; transform: scale(1); }
+  50%      { opacity: 0.75; transform: scale(1.04); }
+}
+.animate-dronan-pulse { animation: dronan-pulse 2.4s var(--ease-out-soft) infinite; }
+
+@keyframes dronan-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-2) 0%,
+    var(--color-border) 50%,
+    var(--color-surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: dronan-shimmer 1.6s var(--ease-out-soft) infinite;
+  border-radius: var(--radius-md);
 }
