@@ -180,6 +180,49 @@ class InjectObstacleRequest(BaseModel):
     lon: float
 
 
+@router.get("/logs/flight")
+async def logs_flight(
+    db: Any = Depends(get_db),
+    mission_id: str | None = None,
+    drone_id: str | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    """Recent flight log entries, newest first. Optional mission/drone filters."""
+    q: dict = {}
+    if mission_id:
+        q["mission_id"] = mission_id
+    if drone_id:
+        q["drone_id"] = drone_id
+    cursor = db.flight_logs.find(q).sort("ts", -1).limit(max(1, min(limit, 500)))
+    return [serialise(doc) async for doc in cursor]
+
+
+@router.get("/logs/audit")
+async def logs_audit(
+    db: Any = Depends(get_db),
+    mission_id: str | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    """Append-only audit trail. Optional mission filter."""
+    q: dict = {}
+    if mission_id:
+        q["mission_id"] = mission_id
+    cursor = db.audit_trail.find(q).sort("ts", -1).limit(max(1, min(limit, 500)))
+    return [serialise(doc) async for doc in cursor]
+
+
+@router.get("/logs/tool-calls")
+async def logs_tool_calls(
+    db: Any = Depends(get_db),
+    limit: int = 200,
+) -> list[dict]:
+    """Recent tool invocations from tool_call_log."""
+    cursor = (
+        db.tool_call_log.find({}).sort("started_at", -1).limit(max(1, min(limit, 500)))
+    )
+    return [serialise(doc) async for doc in cursor]
+
+
 @router.get("/agents/stream")
 async def agents_stream(
     request: Request,

@@ -65,6 +65,7 @@ junit.xml
 # --- Logs & local data ---
 *.log
 logs/
+!frontend/app/(app)/logs/
 *.pid
 tmp/
 temp/
