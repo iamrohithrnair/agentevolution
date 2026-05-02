@@ -59,21 +59,29 @@ def _to_memory_hit(doc: dict) -> dict:
             "score",
         }
     }
-    # Prefer _id, then a synthetic stable id from source_collection + source_id
-    # (for vector_search hits that ship without the raw _id), then a hash of
-    # the text as a last resort. Never empty.
+    # Prefer _id, then a synthetic stable id. The synthetic form must be
+    # unique across hits even when several reflections / regulations share
+    # the same source_id (e.g. EASA_OPEN_A1 has sections for altitude,
+    # mass, overflight). So we always mix in a SHA-1 slice of
+    # title+text so two different sections of the same regulation don't
+    # collide on their React keys.
+    import hashlib as _h  # noqa: PLC0415
+
     raw_id = str(doc.get("_id") or doc.get("id") or "")
     if not raw_id:
         src_col = doc.get("source_collection") or "mem"
         src_id = doc.get("source_id") or ""
+        suffix = _h.sha1(
+            (
+                (doc.get("title") or "")
+                + "|"
+                + (doc.get("text") or "")
+            ).encode("utf-8")
+        ).hexdigest()[:10]
         if src_id:
-            raw_id = f"{src_col}:{src_id}"
+            raw_id = f"{src_col}:{src_id}:{suffix}"
         else:
-            import hashlib as _h  # noqa: PLC0415
-
-            raw_id = "mem:" + _h.sha1(
-                (doc.get("text") or doc.get("title") or "").encode("utf-8")
-            ).hexdigest()[:10]
+            raw_id = f"mem:{suffix}"
     return {
         "id": raw_id,
         "kind": doc.get("kind", "reflection"),
